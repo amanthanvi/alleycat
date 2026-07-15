@@ -2,6 +2,7 @@ pub mod codex_resolver;
 pub mod envelope;
 pub mod framing;
 pub mod git_info;
+pub mod harness;
 pub mod launch_environment;
 pub mod launcher;
 pub mod notify;
@@ -16,12 +17,18 @@ pub use envelope::{
     JsonRpcResponse, JsonRpcVersion, RequestId, error_codes,
 };
 pub use git_info::git_info_for_cwd;
+pub use harness::{
+    ExecutableSource, HarnessAuthState, HarnessKind, HarnessLaunchReceipt, HarnessProbeError,
+    ProbeOutput, ResolveExecutableError, ResolvedExecutable, WorkingDirectoryTrust,
+    ordered_harness_candidates, probe_harness, probe_harness_version, resolve_harness_executable,
+    validate_local_working_directory,
+};
 pub use launch_environment::{
     LaunchEnvironment, LaunchEnvironmentPolicy, LaunchEnvironmentResolver, UserEnvironmentLauncher,
 };
 pub use launcher::{
     ChildProcess, ChildStderr, ChildStdin, ChildStdout, LocalLauncher, ProcessLauncher,
-    ProcessRole, ProcessSpec, StdioMode,
+    ProcessRole, ProcessSpec, StdioMode, shutdown_owned_child,
 };
 pub use notify::NotificationSender;
 pub use server::{Bridge, Conn, serve_stdio, serve_stream, serve_stream_with_session};

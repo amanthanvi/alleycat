@@ -1,10 +1,6 @@
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::{Command as StdCommand, Stdio};
-use std::time::Duration;
-
-use tokio::process::Command;
 
 /// POSIX shell lines consumed by `POSIX_RESOLVE_CODEX_BINARY`.
 pub const POSIX_SHELL_CANDIDATE_LINES: &[&str] = &[
@@ -41,21 +37,18 @@ pub fn shell_candidate_lines() -> &'static [&'static str] {
 }
 
 pub fn resolve_latest_codex_binary(program: &Path) -> Option<PathBuf> {
-    let candidates = program_candidates(program);
-    if candidates.is_empty() {
-        return None;
-    }
-
-    if let Some(path) = latest_versioned_codex_candidate(&candidates) {
-        return Some(path);
-    }
-
-    candidates.into_iter().next()
+    // Kept under the original public name for API compatibility. Selection is
+    // intentionally order based now: configured/PATH precedence must not be
+    // silently changed by running every candidate and choosing a newer one.
+    program_candidates(program).into_iter().next()
 }
 
 pub fn program_candidates(program: &Path) -> Vec<PathBuf> {
     if program.is_absolute() || program.components().count() > 1 {
-        return vec![program.to_path_buf()];
+        return is_executable_file(program)
+            .then(|| program.to_path_buf())
+            .into_iter()
+            .collect();
     }
 
     let mut seen = HashSet::new();
@@ -72,23 +65,10 @@ pub fn program_candidates(program: &Path) -> Vec<PathBuf> {
 }
 
 pub async fn newest_codex_candidates_first(candidates: Vec<PathBuf>) -> Vec<PathBuf> {
-    let mut versioned = Vec::new();
-    let mut unversioned = Vec::new();
-
-    for candidate in candidates {
-        match codex_cli_version_async(&candidate).await {
-            Some(version) => versioned.push((version, candidate)),
-            None => unversioned.push(candidate),
-        }
-    }
-
-    versioned.sort_by(|(left, _), (right, _)| right.cmp(left));
-
-    versioned
-        .into_iter()
-        .map(|(_, path)| path)
-        .chain(unversioned)
-        .collect()
+    // Compatibility shim for callers compiled against the old API. Running
+    // arbitrary candidates to sort by version was both unbounded and contrary
+    // to deterministic PATH precedence, so preserve the supplied order.
+    candidates
 }
 
 pub fn parse_codex_cli_version(text: &str) -> Option<CodexCliVersion> {
@@ -116,52 +96,6 @@ pub fn is_codex_program_name(program: &Path) -> bool {
         name.to_ascii_lowercase().as_str(),
         "codex" | "codex.exe" | "codex.cmd" | "codex.bat" | "codex.com"
     )
-}
-
-fn latest_versioned_codex_candidate(candidates: &[PathBuf]) -> Option<PathBuf> {
-    candidates
-        .iter()
-        .filter_map(|path| codex_cli_version_sync(path).map(|version| (version, path.clone())))
-        .max_by(|(left, _), (right, _)| left.cmp(right))
-        .map(|(_, path)| path)
-}
-
-fn codex_cli_version_sync(bin: &Path) -> Option<CodexCliVersion> {
-    let output = StdCommand::new(bin)
-        .arg("--version")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    text.push('\n');
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
-    parse_codex_cli_version(&text)
-}
-
-async fn codex_cli_version_async(bin: &Path) -> Option<CodexCliVersion> {
-    let output = tokio::time::timeout(
-        Duration::from_secs(5),
-        Command::new(bin)
-            .arg("--version")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output(),
-    )
-    .await
-    .ok()?
-    .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    text.push('\n');
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
-    parse_codex_cli_version(&text)
 }
 
 fn parse_version_component(component: &str) -> Option<u64> {
@@ -225,39 +159,44 @@ fn common_codex_candidates() -> Vec<PathBuf> {
             candidates.push(home.join(".volta/bin/codex.cmd"));
             candidates.push(home.join(".local/bin/codex.exe"));
         }
-        return candidates;
     }
 
     #[cfg(not(windows))]
-    if let Some(home) = home {
-        let codex_home = std::env::var_os("CODEX_HOME")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".codex"));
-        candidates.push(codex_home.join("packages/standalone/current/codex"));
-        candidates.push(home.join(".bun/bin/codex"));
-        candidates.push(home.join(".volta/bin/codex"));
-        candidates.push(home.join(".local/bin/codex"));
-        candidates.push(home.join(".cargo/bin/codex"));
-        push_env_dir_candidate(&mut candidates, "PNPM_HOME", "codex");
-        push_env_dir_candidate(&mut candidates, "NVM_BIN", "codex");
-        if let Some(volta_home) = std::env::var_os("VOLTA_HOME").filter(|value| !value.is_empty()) {
-            candidates.push(PathBuf::from(volta_home).join("bin/codex"));
+    {
+        if let Some(home) = home {
+            let codex_home = std::env::var_os("CODEX_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".codex"));
+            candidates.push(codex_home.join("packages/standalone/current/codex"));
+            candidates.push(home.join(".bun/bin/codex"));
+            candidates.push(home.join(".volta/bin/codex"));
+            candidates.push(home.join(".local/bin/codex"));
+            candidates.push(home.join(".cargo/bin/codex"));
+            push_env_dir_candidate(&mut candidates, "PNPM_HOME", "codex");
+            push_env_dir_candidate(&mut candidates, "NVM_BIN", "codex");
+            if let Some(volta_home) =
+                std::env::var_os("VOLTA_HOME").filter(|value| !value.is_empty())
+            {
+                candidates.push(PathBuf::from(volta_home).join("bin/codex"));
+            }
+            if let Some(cargo_home) =
+                std::env::var_os("CARGO_HOME").filter(|value| !value.is_empty())
+            {
+                candidates.push(PathBuf::from(cargo_home).join("bin/codex"));
+            }
+            #[cfg(target_os = "macos")]
+            {
+                candidates.push(home.join("Applications/Codex.app/Contents/Resources/codex"));
+                candidates.push(PathBuf::from(
+                    "/Applications/Codex.app/Contents/Resources/codex",
+                ));
+            }
         }
-        if let Some(cargo_home) = std::env::var_os("CARGO_HOME").filter(|value| !value.is_empty()) {
-            candidates.push(PathBuf::from(cargo_home).join("bin/codex"));
-        }
-        #[cfg(target_os = "macos")]
-        {
-            candidates.push(home.join("Applications/Codex.app/Contents/Resources/codex"));
-            candidates.push(PathBuf::from(
-                "/Applications/Codex.app/Contents/Resources/codex",
-            ));
-        }
+        candidates.push(PathBuf::from("/opt/homebrew/bin/codex"));
+        candidates.push(PathBuf::from("/usr/local/bin/codex"));
+        candidates.push(PathBuf::from("/usr/bin/codex"));
     }
-    candidates.push(PathBuf::from("/opt/homebrew/bin/codex"));
-    candidates.push(PathBuf::from("/usr/local/bin/codex"));
-    candidates.push(PathBuf::from("/usr/bin/codex"));
     candidates
 }
 
@@ -371,20 +310,19 @@ mod tests {
     }
 
     #[test]
-    fn powershell_resolver_prefers_latest_version() {
-        assert!(POWERSHELL_RESOLVE_CODEX_BINARY.contains("Get-Command codex -All"));
+    fn powershell_resolver_preserves_command_precedence_without_probes() {
+        assert!(POWERSHELL_RESOLVE_CODEX_BINARY.contains("Get-Command codex"));
         assert!(
             POWERSHELL_RESOLVE_CODEX_BINARY.contains("packages\\standalone\\current\\codex.exe")
         );
         assert!(POWERSHELL_RESOLVE_CODEX_BINARY.contains("AppData\\Roaming\\npm\\codex.cmd"));
-        assert!(POWERSHELL_RESOLVE_CODEX_BINARY.contains(r"(\d+)\.(\d+)\.(\d+)"));
-        assert!(POWERSHELL_RESOLVE_CODEX_BINARY.contains("$bestVersion"));
-        assert!(POWERSHELL_RESOLVE_CODEX_BINARY.contains("CompareTo"));
+        assert!(!POWERSHELL_RESOLVE_CODEX_BINARY.contains("--version"));
+        assert!(!POWERSHELL_RESOLVE_CODEX_BINARY.contains("npm "));
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn newest_candidates_accept_dev_suffix_versions() {
+    async fn candidate_precedence_is_not_changed_by_versions() {
         let temp = tempfile::tempdir().unwrap();
         let old_dir = temp.path().join("old");
         let new_dir = temp.path().join("new");
@@ -396,12 +334,12 @@ mod tests {
         write_fake_codex(&new, "codex-cli 0.130.0.dev-20260514");
 
         let sorted = newest_codex_candidates_first(vec![old.clone(), new.clone()]).await;
-        assert_eq!(sorted, vec![new, old]);
+        assert_eq!(sorted, vec![old, new]);
     }
 
     #[cfg(unix)]
     #[test]
-    fn posix_resolver_accepts_dev_suffix_versions() {
+    fn posix_resolver_uses_first_path_winner_without_version_probe() {
         use std::process::Command as StdCommand;
 
         let temp = tempfile::tempdir().unwrap();
@@ -412,13 +350,10 @@ mod tests {
         write_fake_codex(&old_dir.join("codex"), "codex-cli 0.31.0");
         write_fake_codex(&new_dir.join("codex"), "codex-cli 0.130.0.dev-20260514");
 
-        let script = POSIX_RESOLVE_CODEX_BINARY
-            .replace("{{PROFILE_INIT}}", "")
-            .replace("{{PACKAGE_MANAGER_PROBE}}", "")
-            .replace(
-                "{{SHARED_LINES}}",
-                "_litter_consider_path_candidates codex codex",
-            );
+        let script = POSIX_RESOLVE_CODEX_BINARY.replace(
+            "{{SHARED_LINES}}",
+            "_litter_consider_path_candidates codex codex",
+        );
         let original_path = std::env::var("PATH").unwrap_or_default();
         let path_value = format!(
             "{}:{}:{}",
@@ -436,7 +371,7 @@ mod tests {
         assert!(output.status.success());
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            format!("codex:{}", new_dir.join("codex").display())
+            format!("codex:{}", old_dir.join("codex").display())
         );
     }
 

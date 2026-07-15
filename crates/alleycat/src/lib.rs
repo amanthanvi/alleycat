@@ -107,6 +107,9 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+// Direct variants keep Clap parsing and dispatch simple; boxing this internal
+// enum would broaden CLI plumbing without a runtime benefit.
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// Run the long-running daemon. Owns the iroh endpoint, the persistent
     /// identity, and the IPC control socket.

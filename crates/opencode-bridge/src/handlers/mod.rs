@@ -477,16 +477,12 @@ impl OpencodeBridge {
         // rollout to scan-and-repair from. Read it just to silence linters.
         let _ = params.get("useStateDbOnly");
 
-        // Forward a single cwd to narrow the upstream lookup, then apply the
-        // same filter locally against stable bindings. Array cwd filters stay
-        // local because OpenCode accepts only one directory per request.
+        // OpenCode scopes `directory` to the request instance, but this bridge
+        // does not yet attach that directory when it creates a session. Keep
+        // cwd filtering local so a thread cannot disappear merely because its
+        // local binding differs from the bridge process cwd.
         let mut upstream_path = "/session".to_string();
         let mut query = Vec::new();
-        if let Some(cwds) = cwd_filter.as_deref()
-            && let [cwd] = cwds
-        {
-            query.push(format!("directory={}", encode_query(cwd)));
-        }
         if let Some(term) = search_term.as_deref() {
             query.push(format!("search={}", encode_query(term)));
         }

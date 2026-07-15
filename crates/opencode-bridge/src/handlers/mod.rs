@@ -22,7 +22,7 @@ pub struct OpencodeBridge {
     // `new()` (the previous behavior, after partial-moving its fields) the
     // child would be SIGKILL'd the instant the bridge was constructed and
     // the SSE consumer would immediately error with "connection reset".
-    _runtime: OpencodeRuntime,
+    runtime: OpencodeRuntime,
     client: OpencodeClient,
     index: Arc<ThreadIndex>,
     state: Arc<BridgeState>,
@@ -43,10 +43,10 @@ impl OpencodeBridge {
         state_dir: PathBuf,
     ) -> anyhow::Result<Self> {
         let index = Arc::new(ThreadIndex::open(state_dir.join("threads.json")).await?);
-        let client = OpencodeClient::new(runtime.base_url.clone(), runtime.auth_token.clone());
+        let client = runtime.client();
         let sse = SseConsumer::spawn(client.clone());
         Ok(Self {
-            _runtime: runtime,
+            runtime,
             client,
             index,
             state: Arc::new(BridgeState::default()),
@@ -69,6 +69,7 @@ impl OpencodeBridge {
     /// receiver simply continues and any send failure is dropped).
     fn spawn_event_pump(&self, ctx: &Conn) {
         let mut rx = self.sse.subscribe();
+        let mut shutdown = self.sse.shutdown_receiver();
         let index = Arc::clone(&self.index);
         let state = Arc::clone(&self.state);
         let pty = Arc::clone(&self.pty);
@@ -76,7 +77,14 @@ impl OpencodeBridge {
         let ctx = ctx.clone();
         tokio::spawn(async move {
             loop {
-                match rx.recv().await {
+                if *shutdown.borrow() {
+                    break;
+                }
+                let event = tokio::select! {
+                    event = rx.recv() => event,
+                    _ = shutdown.changed() => break,
+                };
+                match event {
                     Ok(event) => {
                         let rc = crate::translate::events::RouteContext {
                             conn: &ctx,
@@ -111,7 +119,12 @@ impl OpencodeBridge {
             .get("serviceName")
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
-        let permission = params.get("approvalPolicy").and_then(permission_from_codex);
+        let permission = Some(
+            params
+                .get("approvalPolicy")
+                .and_then(permission_from_codex)
+                .unwrap_or_else(review_required_permission),
+        );
         let session = self
             .client
             .create_session(title, permission)
@@ -136,10 +149,9 @@ impl OpencodeBridge {
             "instructionSources": [],
             "approvalPolicy": params.get("approvalPolicy").cloned().unwrap_or(json!("untrusted")),
             "approvalsReviewer": params.get("approvalsReviewer").cloned().unwrap_or(json!("user")),
-            // codex `SandboxPolicy` is tagged on `type` (e.g.
-            // `{type:"workspaceWrite"}`), not `mode`. See
-            // codex-rs/protocol/src/protocol.rs:SandboxPolicy.
-            "sandbox": {"type":"workspaceWrite"},
+            // Approval callbacks are enforced, but this bridge does not
+            // create an OS sandbox for the child process.
+            "sandbox": {"type":"dangerFullAccess"},
             // Synthesize codex-default values for the optional config
             // fields opencode doesn't model itself. Without these the
             // wire shape diverges (codex emits content where bridges
@@ -379,7 +391,7 @@ impl OpencodeBridge {
             "instructionSources": [],
             "approvalPolicy": params.get("approvalPolicy").cloned().unwrap_or(json!("untrusted")),
             "approvalsReviewer": params.get("approvalsReviewer").cloned().unwrap_or(json!("user")),
-            "sandbox": {"type":"workspaceWrite"},
+            "sandbox": {"type":"dangerFullAccess"},
             "permissionProfile": params
                 .get("permissionProfile")
                 .cloned()
@@ -465,12 +477,16 @@ impl OpencodeBridge {
         // rollout to scan-and-repair from. Read it just to silence linters.
         let _ = params.get("useStateDbOnly");
 
-        // Fetch from upstream, then apply cwd filtering against the bridge's
-        // local binding. `thread/start` can receive a Codex cwd override that
-        // opencode itself does not store on the session, so forwarding
-        // `directory=` would make a valid Codex thread disappear.
+        // Forward a single cwd to narrow the upstream lookup, then apply the
+        // same filter locally against stable bindings. Array cwd filters stay
+        // local because OpenCode accepts only one directory per request.
         let mut upstream_path = "/session".to_string();
         let mut query = Vec::new();
+        if let Some(cwds) = cwd_filter.as_deref()
+            && let [cwd] = cwds
+        {
+            query.push(format!("directory={}", encode_query(cwd)));
+        }
         if let Some(term) = search_term.as_deref() {
             query.push(format!("search={}", encode_query(term)));
         }
@@ -856,6 +872,11 @@ impl Bridge for OpencodeBridge {
         }
         self.spawn_event_pump(ctx);
     }
+
+    async fn shutdown(&self) {
+        self.sse.shutdown().await;
+        self.runtime.shutdown().await;
+    }
 }
 
 impl OpencodeBridge {
@@ -1056,7 +1077,7 @@ impl OpencodeBridge {
 /// only spawns/probes the opencode backend at `build()` time, so callers can
 /// configure env vars right up to the moment the bridge starts.
 enum RuntimeSource {
-    Explicit(OpencodeRuntime),
+    Explicit(Box<OpencodeRuntime>),
     FromEnv,
 }
 
@@ -1068,7 +1089,7 @@ pub struct OpencodeBridgeBuilder {
 
 impl OpencodeBridgeBuilder {
     pub fn runtime(mut self, runtime: OpencodeRuntime) -> Self {
-        self.runtime = Some(RuntimeSource::Explicit(runtime));
+        self.runtime = Some(RuntimeSource::Explicit(Box::new(runtime)));
         self
     }
 
@@ -1086,7 +1107,7 @@ impl OpencodeBridgeBuilder {
 
     pub async fn build(self) -> anyhow::Result<Arc<OpencodeBridge>> {
         let runtime = match self.runtime {
-            Some(RuntimeSource::Explicit(rt)) => rt,
+            Some(RuntimeSource::Explicit(rt)) => *rt,
             Some(RuntimeSource::FromEnv) | None => OpencodeRuntime::start_from_env().await?,
         };
         let bridge = match self.state_dir {
@@ -1167,9 +1188,15 @@ fn permission_from_codex(value: &Value) -> Option<Value> {
     let action = match value.as_str()? {
         "never" => "deny",
         "on-request" | "on-failure" | "untrusted" => "ask",
-        _ => "allow",
+        // Unknown policy names must fail closed. Treat them like an explicit
+        // user review requirement instead of silently granting access.
+        _ => "ask",
     };
     Some(json!([{"permission":"*","pattern":"*","action":action}]))
+}
+
+fn review_required_permission() -> Value {
+    json!([{"permission":"*","pattern":"*","action":"ask"}])
 }
 
 fn split_model(model: &str) -> (&str, &str) {

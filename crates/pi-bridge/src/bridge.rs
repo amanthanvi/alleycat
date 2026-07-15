@@ -14,7 +14,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use alleycat_bridge_core::{
-    Bridge, Conn, JsonRpcError, LocalLauncher, ProcessLauncher, error_codes,
+    Bridge, Conn, JsonRpcError, LocalLauncher, ProcessLauncher, UserEnvironmentLauncher,
+    error_codes,
 };
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
@@ -186,7 +187,10 @@ impl PiBridgeBuilder {
         let agent_bin = self
             .agent_bin
             .unwrap_or_else(|| PathBuf::from(DEFAULT_PI_BIN));
-        let launcher = self.launcher.unwrap_or_else(|| Arc::new(LocalLauncher));
+        let launcher = self.launcher.unwrap_or_else(|| {
+            let local: Arc<dyn ProcessLauncher> = Arc::new(LocalLauncher);
+            Arc::new(UserEnvironmentLauncher::new(local)) as Arc<dyn ProcessLauncher>
+        });
         let codex_home = self
             .codex_home
             .unwrap_or_else(handlers::lifecycle::default_codex_home);
@@ -315,6 +319,10 @@ impl Bridge for PiBridge {
                 tracing::debug!(method = %other, params = %params, "ignoring unknown client notification")
             }
         }
+    }
+
+    async fn shutdown(&self) {
+        self.pool.shutdown_all().await;
     }
 }
 

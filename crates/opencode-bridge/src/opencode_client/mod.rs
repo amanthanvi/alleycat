@@ -1,19 +1,53 @@
+use std::time::Duration;
+
+use base64::Engine as _;
 use reqwest::{Method, Response};
 use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::{Request, header::AUTHORIZATION};
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[derive(Clone)]
+enum ClientAuth {
+    None,
+    /// Compatibility for externally managed legacy test/backends.
+    QueryToken(String),
+    Basic {
+        username: String,
+        password: String,
+    },
+}
 
 #[derive(Clone)]
 pub struct OpencodeClient {
     http: reqwest::Client,
     base_url: String,
-    auth_token: String,
+    auth: ClientAuth,
 }
 
 impl OpencodeClient {
     pub fn new(base_url: String, auth_token: String) -> Self {
+        let auth = if auth_token.is_empty() {
+            ClientAuth::None
+        } else {
+            ClientAuth::QueryToken(auth_token)
+        };
+        Self::with_auth(base_url, auth)
+    }
+
+    pub(crate) fn new_basic(base_url: String, username: String, password: String) -> Self {
+        Self::with_auth(base_url, ClientAuth::Basic { username, password })
+    }
+
+    fn with_auth(base_url: String, auth: ClientAuth) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .build()
+                .expect("reqwest client configuration is valid"),
             base_url: base_url.trim_end_matches('/').to_string(),
-            auth_token,
+            auth,
         }
     }
 
@@ -39,7 +73,10 @@ impl OpencodeClient {
 
     pub async fn raw_get(&self, path: &str) -> anyhow::Result<Response> {
         let url = self.url(path);
-        let resp = self.http.get(url).send().await?;
+        let req = self.authenticate(self.http.get(url));
+        let resp = tokio::time::timeout(REQUEST_TIMEOUT, req.send())
+            .await
+            .map_err(|_| anyhow::anyhow!("opencode request timed out"))??;
         Ok(resp.error_for_status()?)
     }
 
@@ -49,36 +86,58 @@ impl OpencodeClient {
         path: &str,
         body: Option<Value>,
     ) -> anyhow::Result<Value> {
-        let mut req = self.http.request(method, self.url(path));
+        let mut req = self.authenticate(self.http.request(method, self.url(path)));
         if let Some(body) = body {
             req = req.json(&body);
         }
-        let resp = req.send().await?.error_for_status()?;
+        let resp = tokio::time::timeout(REQUEST_TIMEOUT, req.send())
+            .await
+            .map_err(|_| anyhow::anyhow!("opencode request timed out"))??
+            .error_for_status()?;
         if resp.status() == reqwest::StatusCode::NO_CONTENT {
             return Ok(Value::Null);
         }
-        Ok(resp.json().await?)
+        Ok(tokio::time::timeout(REQUEST_TIMEOUT, resp.json())
+            .await
+            .map_err(|_| anyhow::anyhow!("opencode response body timed out"))??)
     }
 
     fn url(&self, path: &str) -> String {
-        let sep = if path.contains('?') { '&' } else { '?' };
-        if self.auth_token.is_empty() {
-            format!("{}{}", self.base_url, path)
-        } else {
-            format!(
-                "{}{}{}auth_token={}",
-                self.base_url, path, sep, self.auth_token
-            )
+        match &self.auth {
+            ClientAuth::QueryToken(token) => {
+                let sep = if path.contains('?') { '&' } else { '?' };
+                format!("{}{}{}auth_token={}", self.base_url, path, sep, token)
+            }
+            ClientAuth::None | ClientAuth::Basic { .. } => format!("{}{}", self.base_url, path),
+        }
+    }
+
+    fn authenticate(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match &self.auth {
+            ClientAuth::Basic { username, password } => {
+                request.basic_auth(username, Some(password))
+            }
+            ClientAuth::None | ClientAuth::QueryToken(_) => request,
         }
     }
 
     /// `ws://…/pty/{id}/connect[?auth_token=…]`. Exposed so `pty.rs` can own
     /// a long-lived websocket per process for the full `command/exec`
     /// lifetime.
-    pub fn pty_connect_url(&self, pty_id: &str) -> String {
-        self.url(&format!("/pty/{pty_id}/connect"))
+    pub fn pty_connect_request(&self, pty_id: &str) -> anyhow::Result<Request<()>> {
+        let url = self
+            .url(&format!("/pty/{pty_id}/connect"))
             .replacen("http://", "ws://", 1)
-            .replacen("https://", "wss://", 1)
+            .replacen("https://", "wss://", 1);
+        let mut request = url.into_client_request()?;
+        if let ClientAuth::Basic { username, password } = &self.auth {
+            let credential =
+                base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"));
+            request
+                .headers_mut()
+                .insert(AUTHORIZATION, format!("Basic {credential}").parse()?);
+        }
+        Ok(request)
     }
 
     pub async fn pty_create(&self, body: Value) -> anyhow::Result<Value> {
@@ -197,5 +256,29 @@ impl OpencodeClient {
         )
         .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basic_auth_is_a_header_and_never_part_of_the_url() {
+        let client = OpencodeClient::new_basic(
+            "http://127.0.0.1:4096".into(),
+            "opencode".into(),
+            "secret-password".into(),
+        );
+        let request = client.pty_connect_request("pty-1").unwrap();
+        assert_eq!(
+            request.uri().to_string(),
+            "ws://127.0.0.1:4096/pty/pty-1/connect"
+        );
+        assert_eq!(
+            request.headers().get(AUTHORIZATION).unwrap(),
+            "Basic b3BlbmNvZGU6c2VjcmV0LXBhc3N3b3Jk"
+        );
+        assert!(!request.uri().to_string().contains("secret-password"));
     }
 }

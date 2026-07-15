@@ -188,6 +188,10 @@ impl PiPool {
         self.inner.release(thread_id).await
     }
 
+    pub async fn shutdown_all(&self) {
+        self.inner.shutdown_all().await
+    }
+
     /// All thread ids currently tracked by the pool.
     pub async fn loaded_thread_ids(&self) -> Vec<ThreadId> {
         self.inner.loaded_thread_ids().await

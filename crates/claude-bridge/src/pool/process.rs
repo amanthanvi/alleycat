@@ -34,8 +34,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alleycat_bridge_core::{
-    ChildProcess, ChildStderr, ChildStdin, ChildStdout, ProcessLauncher, ProcessRole, ProcessSpec,
-    StdioMode,
+    ChildProcess, ChildStderr, ChildStdin, ChildStdout, HarnessLaunchReceipt, LocalLauncher,
+    ProcessLauncher, ProcessRole, ProcessSpec, StdioMode, UserEnvironmentLauncher,
+    shutdown_owned_child,
 };
 use anyhow::{Context, Result, anyhow};
 use thiserror::Error;
@@ -133,6 +134,7 @@ pub struct ClaudeProcessHandle {
     claude_bin: PathBuf,
     thread_id: String,
     pid: Option<u32>,
+    launch_receipt: Option<HarnessLaunchReceipt>,
     /// Sender end of the writer mpsc — closing this is the signal to the
     /// writer task to drop claude's stdin (which makes claude exit cleanly).
     writer_tx: mpsc::UnboundedSender<String>,
@@ -220,7 +222,8 @@ impl ClaudeProcessHandle {
     /// [`alleycat_bridge_core::LocalLauncher`]. Convenience wrapper over
     /// [`Self::launch_with`] for callers that don't need a custom launcher.
     pub async fn spawn(config: ClaudeSpawnConfig) -> Result<Self> {
-        let launcher: Arc<dyn ProcessLauncher> = Arc::new(alleycat_bridge_core::LocalLauncher);
+        let local: Arc<dyn ProcessLauncher> = Arc::new(LocalLauncher);
+        let launcher: Arc<dyn ProcessLauncher> = Arc::new(UserEnvironmentLauncher::new(local));
         Self::launch_with(launcher, config).await
     }
 
@@ -243,46 +246,14 @@ impl ClaudeProcessHandle {
             bypass_permissions,
         } = config;
 
-        let mut args: Vec<OsString> = Vec::new();
-        args.push("-p".into());
-        args.push("--input-format".into());
-        args.push("stream-json".into());
-        args.push("--output-format".into());
-        args.push("stream-json".into());
-        args.push("--include-partial-messages".into());
-        args.push("--verbose".into());
-        if bypass_permissions {
-            args.push("--dangerously-skip-permissions".into());
-        } else {
-            // HITL mode: claude emits inbound control_request{can_use_tool}
-            // over stdout for every tool call; the bridge responds via
-            // outbound control_response{...{behavior:"allow"|"deny"}}.
-            args.push("--permission-prompt-tool".into());
-            args.push("stdio".into());
-        }
-        args.push("--add-dir".into());
-        args.push(cwd.clone().into_os_string());
-        // `--session-id` and `--resume` are mutually exclusive on the
-        // claude CLI: `--session-id` creates a new session with that id,
-        // `--resume` opens the existing one. Passing both together makes
-        // claude accept the session but silently swallow stdin from then
-        // on (observed in conformance reproductions: every turn/start
-        // hits the bridge but never produces an assistant reply).
-        if resume {
-            args.push("--resume".into());
-            args.push(thread_id.clone().into());
-        } else {
-            args.push("--session-id".into());
-            args.push(thread_id.clone().into());
-        }
-        if let Some(m) = model.as_deref() {
-            args.push("--model".into());
-            args.push(m.into());
-        }
-        if let Some(prompt) = append_system_prompt.as_deref() {
-            args.push("--append-system-prompt".into());
-            args.push(prompt.into());
-        }
+        let args = claude_launch_args(
+            &thread_id,
+            &cwd,
+            model.as_deref(),
+            append_system_prompt.as_deref(),
+            resume,
+            bypass_permissions,
+        );
 
         let spec = ProcessSpec {
             role: ProcessRole::Agent,
@@ -306,6 +277,7 @@ impl ClaudeProcessHandle {
         })?;
 
         let pid = child.id();
+        let launch_receipt = child.launch_receipt().cloned();
         let stdin = child
             .take_stdin()
             .ok_or_else(|| anyhow!("claude child has no stdin pipe"))?;
@@ -353,6 +325,7 @@ impl ClaudeProcessHandle {
             claude_bin,
             thread_id,
             pid,
+            launch_receipt,
             writer_tx,
             events_tx,
             init_slot,
@@ -380,6 +353,11 @@ impl ClaudeProcessHandle {
     /// OS process id (when the spawn surfaced one).
     pub fn pid(&self) -> Option<u32> {
         self.pid
+    }
+
+    /// Redacted executable/cwd/version metadata for this owned launch.
+    pub fn launch_receipt(&self) -> Option<&HarnessLaunchReceipt> {
+        self.launch_receipt.as_ref()
     }
 
     /// Subscribe to the broadcast event channel. New subscribers see only
@@ -590,14 +568,12 @@ impl ClaudeProcessHandle {
         if let Some(handle) = self._tasks.writer.lock().await.take() {
             handle.abort();
         }
+        if let Some(child) = self._tasks.child.lock().await.take() {
+            let _ =
+                shutdown_owned_child(child, Duration::from_secs(2), Duration::from_secs(2)).await;
+        }
         if let Some(handle) = self._tasks.stderr.lock().await.take() {
             handle.abort();
-        }
-        if let Some(mut child) = self._tasks.child.lock().await.take() {
-            // kill is a no-op if the child has already exited via stdin EOF.
-            // We still call it as a safety net for stuck children.
-            let _ = child.kill().await;
-            let _ = child.wait().await;
         }
         if let Some(handle) = self._tasks.reader.lock().await.take() {
             handle.abort();
@@ -609,6 +585,51 @@ impl alleycat_bridge_core::pool::PoolMember for ClaudeProcessHandle {
     async fn shutdown(&self) {
         ClaudeProcessHandle::shutdown(self).await
     }
+}
+
+fn claude_launch_args(
+    thread_id: &str,
+    cwd: &Path,
+    model: Option<&str>,
+    append_system_prompt: Option<&str>,
+    resume: bool,
+    bypass_permissions: bool,
+) -> Vec<OsString> {
+    let mut args = vec![
+        "-p".into(),
+        "--input-format".into(),
+        "stream-json".into(),
+        "--output-format".into(),
+        "stream-json".into(),
+        "--include-partial-messages".into(),
+        "--verbose".into(),
+    ];
+    if bypass_permissions {
+        args.push("--dangerously-skip-permissions".into());
+    } else {
+        // HITL mode: claude emits can_use_tool requests over stdout and the
+        // bridge returns explicit allow/deny control responses.
+        args.push("--permission-prompt-tool".into());
+        args.push("stdio".into());
+    }
+    args.push("--add-dir".into());
+    args.push(cwd.as_os_str().to_os_string());
+    // `--session-id` and `--resume` are mutually exclusive.
+    if resume {
+        args.push("--resume".into());
+    } else {
+        args.push("--session-id".into());
+    }
+    args.push(thread_id.into());
+    if let Some(model) = model {
+        args.push("--model".into());
+        args.push(model.into());
+    }
+    if let Some(prompt) = append_system_prompt {
+        args.push("--append-system-prompt".into());
+        args.push(prompt.into());
+    }
+    args
 }
 
 async fn writer_task(mut stdin: ChildStdin, mut rx: mpsc::UnboundedReceiver<String>) {
@@ -727,6 +748,7 @@ impl ClaudeProcessHandle {
             claude_bin: PathBuf::from("/dev/null"),
             thread_id: "test-thread".into(),
             pid: None,
+            launch_receipt: None,
             writer_tx,
             events_tx,
             init_slot: Arc::new(InitSlot::default()),
@@ -754,6 +776,18 @@ impl ClaudeProcessHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn safe_launch_args_use_stdio_approval_and_no_dangerous_flag() {
+        let args = claude_launch_args("thread-1", Path::new("/tmp"), None, None, false, false);
+        assert!(args.windows(2).any(|pair| {
+            pair == [
+                OsString::from("--permission-prompt-tool"),
+                OsString::from("stdio"),
+            ]
+        }));
+        assert!(!args.contains(&OsString::from("--dangerously-skip-permissions")));
+    }
     use crate::pool::claude_protocol::SystemInit;
 
     #[tokio::test]

@@ -956,21 +956,10 @@ fn source_kind_to_session_source(kind: ThreadSourceKind) -> SessionSource {
 }
 
 fn sandbox_value(mode: Option<p::SandboxMode>) -> p::SandboxPolicy {
-    // Codex's `SandboxPolicy` is `#[serde(tag = "type", rename_all =
-    // "camelCase")]` with variants `ReadOnly`, `DangerFullAccess`,
-    // `WorkspaceWrite`, `ExternalSandbox` (see app-server-protocol/src/protocol/v2.rs).
-    // Inner fields all have `#[serde(default)]`, so emitting just the discriminator
-    // round-trips cleanly. Default to `workspaceWrite` when the caller didn't
-    // pick anything.
-    match mode {
-        Some(p::SandboxMode::ReadOnly) => serde_json::json!({ "type": "readOnly" }),
-        Some(p::SandboxMode::DangerFullAccess) => {
-            serde_json::json!({ "type": "dangerFullAccess" })
-        }
-        Some(p::SandboxMode::WorkspaceWrite) | None => {
-            serde_json::json!({ "type": "workspaceWrite" })
-        }
-    }
+    let _ = mode;
+    // Pi RPC does not expose an OS sandbox control. Report the effective
+    // process boundary rather than echoing an unenforced request.
+    serde_json::json!({ "type": "dangerFullAccess" })
 }
 
 fn parse_cwd_filter(value: &Option<serde_json::Value>) -> Option<Vec<String>> {
@@ -1516,21 +1505,15 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_value_maps_each_mode() {
-        assert_eq!(
-            sandbox_value(Some(p::SandboxMode::ReadOnly)),
-            json!({"type": "readOnly"})
-        );
-        assert_eq!(
-            sandbox_value(Some(p::SandboxMode::DangerFullAccess)),
-            json!({"type": "dangerFullAccess"})
-        );
-        assert_eq!(
-            sandbox_value(Some(p::SandboxMode::WorkspaceWrite)),
-            json!({"type": "workspaceWrite"})
-        );
-        // Default falls back to workspaceWrite.
-        assert_eq!(sandbox_value(None), json!({"type": "workspaceWrite"}));
+    fn sandbox_value_reports_effective_unsandboxed_boundary() {
+        for mode in [
+            Some(p::SandboxMode::ReadOnly),
+            Some(p::SandboxMode::WorkspaceWrite),
+            Some(p::SandboxMode::DangerFullAccess),
+            None,
+        ] {
+            assert_eq!(sandbox_value(mode), json!({"type": "dangerFullAccess"}));
+        }
     }
 
     #[test]

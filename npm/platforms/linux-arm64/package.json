@@ -1,0 +1,16 @@
+{
+  "name": "@remora/link-linux-arm64-gnu",
+  "version": "0.1.0",
+  "description": "Remora Link native binary for glibc 2.35+ Linux arm64.",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amanthanvi/alleycat.git",
+    "directory": "npm/platforms/linux-arm64"
+  },
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "libc": ["glibc"],
+  "files": ["bin/remora-link", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public", "provenance": true }
+}

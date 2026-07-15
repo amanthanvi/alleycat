@@ -1,0 +1,37 @@
+{
+  "name": "remora-link",
+  "version": "0.1.0",
+  "description": "Install and run the Remora Link host bridge.",
+  "license": "GPL-3.0-only",
+  "author": "The Remora Link Authors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amanthanvi/alleycat.git",
+    "directory": "npm/remora-link"
+  },
+  "homepage": "https://github.com/amanthanvi/remora",
+  "type": "module",
+  "bin": {
+    "remora-link": "bin/remora-link.js"
+  },
+  "files": [
+    "bin/remora-link.js",
+    "lib/launcher.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "optionalDependencies": {
+    "@remora/link-darwin-arm64": "0.1.0",
+    "@remora/link-darwin-x64": "0.1.0",
+    "@remora/link-linux-arm64-gnu": "0.1.0",
+    "@remora/link-linux-x64-gnu": "0.1.0",
+    "@remora/link-win32-x64-msvc": "0.1.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

@@ -1,0 +1,206 @@
+name: Remora Link release
+
+on:
+  push:
+    tags:
+      - "remora-link-v*"
+
+concurrency:
+  group: remora-link-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: remora-link-tests
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#remora-link-v}"
+          test "remora-link-v${version}" = "$GITHUB_REF_NAME"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Verify exact package graph
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+        run: node npm/scripts/verify-packages.mjs
+      - name: Verify locked workspace resolution
+        run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
+      - name: Test locked Rust workspace
+        run: |
+          cargo fetch --locked
+          cargo test --locked --frozen --workspace
+      - name: Test npm launcher
+        run: node --test npm/test/*.test.mjs
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - platform: darwin-x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - platform: linux-arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - platform: win32-x64
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: 1.97.0
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: remora-link-${{ matrix.target }}
+      - name: Fetch the locked dependency graph
+        run: cargo fetch --locked --target ${{ matrix.target }}
+      - name: Build exact locked source
+        run: cargo build --locked --frozen --release --package remora-link --bins --target ${{ matrix.target }}
+      - name: Smoke native CLI
+        shell: bash
+        env:
+          BINARY_SUFFIX: ${{ matrix.platform == 'win32-x64' && '.exe' || '' }}
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/remora-link${BINARY_SUFFIX}"
+          "$binary" --version
+          "$binary" --help | grep -F "remora-link" >/dev/null
+      - name: Stage native package payload
+        run: >-
+          node npm/scripts/stage-binary.mjs
+          ${{ matrix.platform }}
+          target/${{ matrix.target }}/release
+          dist/platforms/${{ matrix.platform }}
+      - name: Smoke npm platform selection and stable install
+        run: >-
+          node npm/scripts/smoke-launcher.mjs
+          ${{ matrix.platform }}
+          dist/platforms/${{ matrix.platform }}
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: dist/platforms/${{ matrix.platform }}/bin
+          format: spdx-json
+          output-file: dist/platforms/${{ matrix.platform }}/${{ matrix.platform }}.spdx.json
+          upload-artifact: false
+      - name: Attest native binaries
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: dist/platforms/${{ matrix.platform }}/bin/*
+      - name: Attest SBOM
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: dist/platforms/${{ matrix.platform }}/bin/*
+          sbom-path: dist/platforms/${{ matrix.platform }}/${{ matrix.platform }}.spdx.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: remora-link-${{ matrix.platform }}
+          path: dist/platforms/${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Use trusted-publishing-capable npm
+        run: npm install --global npm@12.0.1
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          pattern: remora-link-*
+          path: dist/downloads
+      - name: Assemble packages
+        run: node npm/scripts/assemble-release.mjs dist/downloads dist/release
+      - name: Re-verify exact versions
+        env:
+          EXPECTED_VERSION: ${{ needs.validate.outputs.version }}
+        run: node npm/scripts/verify-packages.mjs
+      - name: Pack auditable npm tarballs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/npm
+          for package_dir in npm/platforms/* npm/remora-link; do
+            npm pack "./$package_dir" --pack-destination dist/npm
+          done
+      - name: Checksum the downloadable release assets
+        run: node npm/scripts/write-release-checksums.mjs dist/npm dist/release
+      - name: Attest npm tarballs
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
+        with:
+          subject-path: dist/npm/*.tgz
+      - name: Publish attested tarballs with immutable retry checks
+        run: node npm/scripts/publish-release.mjs dist/npm
+      - name: Publish GitHub release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "Remora Link ${{ needs.validate.outputs.version }}"
+          fi
+          existing_dir="$(mktemp -d)"
+          trap 'rm -rf "$existing_dir"' EXIT
+          asset_names="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')"
+          for file in dist/npm/*.tgz dist/release/*; do
+            name="$(basename "$file")"
+            if grep -Fxq "$name" <<<"$asset_names"; then
+              gh release download "$GITHUB_REF_NAME" --pattern "$name" --dir "$existing_dir"
+              if ! cmp -s "$file" "$existing_dir/$name"; then
+                echo "release asset $name already exists with different immutable bytes" >&2
+                exit 1
+              fi
+              echo "release asset $name already exists with matching bytes"
+            else
+              gh release upload "$GITHUB_REF_NAME" "$file"
+            fi
+          done

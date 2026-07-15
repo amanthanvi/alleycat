@@ -1,0 +1,20 @@
+{
+  "name": "@remora/link-win32-x64-msvc",
+  "version": "0.1.0",
+  "description": "Remora Link native binaries for Windows x64.",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amanthanvi/alleycat.git",
+    "directory": "npm/platforms/win32-x64"
+  },
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": [
+    "bin/remora-link.exe",
+    "bin/remora-link-startup.exe",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": { "access": "public", "provenance": true }
+}

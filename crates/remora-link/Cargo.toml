@@ -1,0 +1,24 @@
+[package]
+name = "remora-link"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors = ["The Remora Link Authors"]
+repository = "https://github.com/amanthanvi/alleycat"
+homepage = "https://github.com/amanthanvi/remora"
+readme = "README.md"
+description = "Remora's local host bridge for installed coding-agent harnesses."
+publish = false
+default-run = "remora-link"
+
+[[bin]]
+name = "remora-link"
+path = "src/main.rs"
+
+[[bin]]
+name = "remora-link-startup"
+path = "src/bin/remora-link-startup.rs"
+
+[dependencies]
+alleycat = { path = "../alleycat", version = "0.1" }
+anyhow.workspace = true

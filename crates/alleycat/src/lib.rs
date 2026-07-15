@@ -10,6 +10,7 @@ mod daemon;
 mod framing;
 mod host;
 mod ipc;
+pub mod pairing_v2;
 mod paths;
 mod protocol;
 mod service;
@@ -46,9 +47,10 @@ pub struct App {
     /// stem, and `service::service_label()` (e.g. `com.sigkitten.kittylitter`).
     pub label: &'static str,
     /// SemVer of the *binary* (the wrapper crate, e.g. `kittylitter` 0.2.1),
-    /// not of this library. Reported by the daemon over IPC so a freshly
-    /// installed CLI can detect a stale long-running daemon and respawn
-    /// itself transparently. Binaries should pass `env!("CARGO_PKG_VERSION")`.
+    /// not of this library. Reported by `--version` and daemon IPC so a
+    /// freshly installed CLI can detect a stale long-running daemon and
+    /// respawn itself transparently. Binaries should pass
+    /// `env!("CARGO_PKG_VERSION")`.
     pub version: &'static str,
 }
 
@@ -98,10 +100,7 @@ pub fn binary_version() -> &'static str {
 }
 
 #[derive(Parser)]
-#[command(
-    version,
-    about = "Iroh-backed bridge that multiplexes local coding agents for paired clients"
-)]
+#[command(about = "Iroh-backed bridge that multiplexes local coding agents for paired clients")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -120,7 +119,7 @@ enum Command {
     /// Print the running daemon's status (falls back to file-only when the
     /// daemon isn't running).
     Status(cli::status::StatusArgs),
-    /// Print the stable pair payload, optionally with an ASCII QR code.
+    /// Mint a one-time Remora Link invitation for copy/paste or QR pairing.
     Pair(cli::pair::PairArgs),
     /// Mint a fresh token. Node id is preserved.
     Rotate,
@@ -134,6 +133,8 @@ enum Command {
     Restart,
     /// Inspect agents.
     Agents(cli::agents::AgentsArgs),
+    /// List or selectively revoke paired Remora Link devices.
+    Devices(cli::devices::DevicesArgs),
     /// Connect to the daemon over iroh like a phone client and run JSON-RPC
     /// methods directly. Defaults to invoking `thread/list` on the chosen agent.
     Probe(cli::probe::ProbeArgs),
@@ -144,7 +145,7 @@ enum Command {
 }
 
 async fn async_main() -> anyhow::Result<()> {
-    let matches = Cli::command().name(binary_name()).get_matches();
+    let matches = cli_command(app()).get_matches();
     let cli = Cli::from_arg_matches(&matches)?;
     match cli.command {
         None => {
@@ -198,6 +199,10 @@ async fn async_main() -> anyhow::Result<()> {
             init_cli_logging();
             cli::agents::run(args).await
         }
+        Some(Command::Devices(args)) => {
+            init_cli_logging();
+            cli::devices::run(args).await
+        }
         Some(Command::Probe(args)) => {
             init_cli_logging();
             cli::probe::run(args).await
@@ -209,6 +214,12 @@ async fn async_main() -> anyhow::Result<()> {
     }
 }
 
+fn cli_command(application: &App) -> clap::Command {
+    Cli::command()
+        .name(application.binary_name)
+        .version(application.version)
+}
+
 fn init_cli_logging() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -216,4 +227,30 @@ fn init_cli_logging() {
         }))
         .with_writer(std::io::stderr)
         .try_init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::error::ErrorKind;
+
+    #[test]
+    fn wrapper_cli_reports_registered_app_version_not_library_version() {
+        let wrapper = App {
+            binary_name: "remora-link",
+            qualifier: "com",
+            organization: "Remora",
+            application: "remora-link",
+            label: "com.remora.link",
+            version: "9.8.7-wrapper",
+        };
+
+        let error = cli_command(&wrapper)
+            .try_get_matches_from([wrapper.binary_name, "--version"])
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::DisplayVersion);
+        let rendered = error.to_string();
+        assert!(rendered.contains("remora-link 9.8.7-wrapper"));
+        assert!(!rendered.contains(env!("CARGO_PKG_VERSION")));
+    }
 }

@@ -11,6 +11,7 @@ use crate::framing::{read_json_frame, write_json_frame};
 use crate::ipc;
 
 pub mod agents;
+pub mod devices;
 pub mod logs;
 pub mod onboarding;
 pub mod pair;
@@ -70,7 +71,7 @@ pub fn require_ok(resp: &Response) -> anyhow::Result<()> {
 ///   fall through to manual spawn
 ///
 /// Called at the top of subcommands that mutate user-visible state
-/// (`pair`, `rotate`) and at the top of the bare-invocation onboarding
+/// (`pair`, `rotate`, `devices revoke`) and at the top of the bare-invocation onboarding
 /// flow, so users never have to know whether a daemon is up, fresh, or
 /// stale — `npx kittylitter` Just Works regardless of prior state.
 pub async fn ensure_current_daemon() -> anyhow::Result<()> {

@@ -26,7 +26,10 @@ use crate::ipc::{ControlListener, ControlStream};
 use crate::paths;
 use crate::state;
 
-use self::control::{Request, Response, RotateResult, StatusInfo, token_fingerprint};
+use self::control::{
+    DeviceRevokeResult, PairingResultV2, Request, Response, RotateResult, StatusInfo,
+    token_fingerprint,
+};
 
 /// Entry point for `alleycat serve`. Initializes file logging, acquires the
 /// single-instance lock, binds the iroh endpoint + control IPC, and runs
@@ -64,6 +67,10 @@ pub async fn run() -> anyhow::Result<()> {
     let node_id = secret_key.public().to_string();
     info!(node_id = %node_id, "loaded persistent identity");
 
+    let pairing = crate::pairing_v2::PairingManager::load_default()
+        .await
+        .context("loading Remora Link device grants")?;
+
     let endpoint = host::bind_endpoint(secret_key.clone()).await?;
     let agents = AgentManager::new(Arc::clone(&config))
         .await
@@ -76,9 +83,11 @@ pub async fn run() -> anyhow::Result<()> {
         let endpoint = endpoint.clone();
         let agents = agents.clone();
         let config = Arc::clone(&config);
+        let pairing = pairing.clone();
         let shutdown = Arc::clone(&shutdown);
         tokio::spawn(async move {
-            if let Err(error) = host::accept_loop(endpoint, agents, config, shutdown).await {
+            if let Err(error) = host::accept_loop(endpoint, agents, config, pairing, shutdown).await
+            {
                 error!("iroh accept loop ended: {error:#}");
             }
         })
@@ -95,6 +104,7 @@ pub async fn run() -> anyhow::Result<()> {
         secret_key,
         endpoint: endpoint.clone(),
         node_id,
+        pairing,
         started_at,
         shutdown: Arc::clone(&shutdown),
     });
@@ -133,6 +143,7 @@ struct DaemonState {
     secret_key: iroh::SecretKey,
     endpoint: iroh::Endpoint,
     node_id: String,
+    pairing: crate::pairing_v2::PairingManager,
     started_at: Instant,
     shutdown: Arc<Notify>,
 }
@@ -183,9 +194,14 @@ async fn dispatch(daemon: Arc<DaemonState>, request: Request) -> (Response, Opti
     match request {
         Request::Status => (handle_status(&daemon).await, None),
         Request::Pair => (handle_pair(&daemon).await, None),
+        Request::PairLegacy => (handle_pair_legacy(&daemon).await, None),
         Request::Rotate => (handle_rotate(&daemon).await, None),
         Request::Reload => (handle_reload(&daemon).await, None),
         Request::AgentsList => (handle_agents_list(&daemon).await, None),
+        Request::DevicesList => (handle_devices_list(&daemon).await, None),
+        Request::DeviceRevoke { device_id } => {
+            (handle_device_revoke(&daemon, &device_id).await, None)
+        }
         Request::Stop => (Response::ok(), Some(PostResponse::Shutdown)),
     }
 }
@@ -208,6 +224,27 @@ async fn handle_status(daemon: &DaemonState) -> Response {
 }
 
 async fn handle_pair(daemon: &DaemonState) -> Response {
+    wait_for_relay(&daemon.endpoint).await;
+    let cfg = daemon.config.load();
+    let relay = host::endpoint_home_relay(Some(&daemon.endpoint)).or_else(|| cfg.relay.clone());
+    drop(cfg);
+    let invitation = match daemon
+        .pairing
+        .create_invitation(daemon.node_id.clone(), host::local_host_name(), relay)
+        .await
+    {
+        Ok(invitation) => invitation,
+        Err(error) => return Response::err(format!("creating pairing invitation: {error:#}")),
+    };
+    let code = match invitation.to_pairing_code() {
+        Ok(code) => code,
+        Err(error) => return Response::err(format!("encoding pairing invitation: {error:#}")),
+    };
+    Response::ok_with(&PairingResultV2 { invitation, code })
+        .unwrap_or_else(|error| Response::err(error.to_string()))
+}
+
+async fn handle_pair_legacy(daemon: &DaemonState) -> Response {
     wait_for_relay(&daemon.endpoint).await;
     let cfg = daemon.config.load();
     let payload = host::pair_payload(&daemon.secret_key, &cfg, Some(&daemon.endpoint));
@@ -253,6 +290,20 @@ async fn handle_reload(daemon: &DaemonState) -> Response {
 async fn handle_agents_list(daemon: &DaemonState) -> Response {
     let agents = daemon.agents.list_agents().await;
     Response::ok_with(&agents).unwrap_or_else(|e| Response::err(e.to_string()))
+}
+
+async fn handle_devices_list(daemon: &DaemonState) -> Response {
+    Response::ok_with(&daemon.pairing.list_devices().await)
+        .unwrap_or_else(|error| Response::err(error.to_string()))
+}
+
+async fn handle_device_revoke(daemon: &DaemonState, device_id: &str) -> Response {
+    match daemon.pairing.revoke_device(device_id).await {
+        Ok(Some(device)) => Response::ok_with(&DeviceRevokeResult { device })
+            .unwrap_or_else(|error| Response::err(error.to_string())),
+        Ok(None) => Response::err("device not found"),
+        Err(error) => Response::err(format!("revoking device: {error:#}")),
+    }
 }
 
 async fn wait_for_signal(shutdown: Arc<Notify>) {

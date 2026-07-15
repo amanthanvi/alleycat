@@ -52,7 +52,9 @@ impl Drop for Listener {
 }
 
 pub(super) async fn connect() -> anyhow::Result<Box<dyn ControlStream>> {
-    let path = paths::control_socket_path()?;
+    // A client probe must not initialize state merely to discover that no
+    // daemon is running. Listener binding owns directory creation.
+    let path = paths::existing_control_socket_path()?;
     connect_at(&path).await
 }
 

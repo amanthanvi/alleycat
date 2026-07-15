@@ -12,6 +12,10 @@ use tracing::{info, warn};
 use crate::agents::AgentManager;
 use crate::config::HostConfig;
 use crate::framing::{read_json_frame, write_json_frame};
+use crate::pairing_v2::{
+    ErrorCodeV2, PROTOCOL_VERSION_V2, PairingManager, ProofV2, REMORA_LINK_ALPN, RequestV2,
+    ResponseV2,
+};
 use crate::protocol::{ALLEYCAT_ALPN, PROTOCOL_VERSION, Request, Response, Resume, SessionInfo};
 use crate::stream::IrohStream;
 
@@ -36,7 +40,7 @@ pub async fn bind_endpoint(secret_key: SecretKey) -> anyhow::Result<Endpoint> {
 
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(secret_key)
-        .alpns(vec![ALLEYCAT_ALPN.to_vec()])
+        .alpns(vec![REMORA_LINK_ALPN.to_vec(), ALLEYCAT_ALPN.to_vec()])
         .transport_config(transport)
         .bind()
         .await
@@ -66,8 +70,10 @@ pub async fn accept_loop(
     endpoint: Endpoint,
     agents: AgentManager,
     config: Arc<ArcSwap<HostConfig>>,
+    pairing: PairingManager,
     shutdown: Arc<Notify>,
 ) -> anyhow::Result<()> {
+    let host_endpoint_id = endpoint.id().to_string();
     loop {
         tokio::select! {
             biased;
@@ -82,6 +88,8 @@ pub async fn accept_loop(
                 };
                 let agents = agents.clone();
                 let config = Arc::clone(&config);
+                let pairing = pairing.clone();
+                let host_endpoint_id = host_endpoint_id.clone();
                 tokio::spawn(async move {
                     match connecting.await {
                         Ok(conn) => {
@@ -90,24 +98,55 @@ pub async fn accept_loop(
                             // key sessions on. It's stable across all
                             // bi-streams of this connection.
                             let node_id = conn.remote_id().to_string();
-                            info!(
-                                conn = conn_id,
-                                node_id = %node_id,
-                                "iroh connection accepted"
-                            );
+                            let protocol = conn.alpn().to_vec();
+                            let is_v2 = protocol == REMORA_LINK_ALPN;
+                            if is_v2 {
+                                pairing
+                                    .register_connection(node_id.clone(), conn.clone())
+                                    .await;
+                                info!(conn = conn_id, protocol = "remora-link/2", "iroh connection accepted");
+                            } else {
+                                info!(
+                                    conn = conn_id,
+                                    node_id = %node_id,
+                                    protocol = "alleycat/1",
+                                    "iroh connection accepted"
+                                );
+                            }
                             while let Ok((send, recv)) = conn.accept_bi().await {
                                 let agents = agents.clone();
                                 let config = Arc::clone(&config);
+                                let pairing = pairing.clone();
+                                let host_endpoint_id = host_endpoint_id.clone();
                                 let node_id = node_id.clone();
+                                let protocol = protocol.clone();
                                 tokio::spawn(async move {
-                                    if let Err(error) = handle_stream(
-                                        send, recv, agents, config, conn_id, node_id,
-                                    )
-                                    .await
-                                    {
+                                    let result = if protocol == REMORA_LINK_ALPN {
+                                        handle_stream_v2(
+                                            send,
+                                            recv,
+                                            agents,
+                                            pairing,
+                                            conn_id,
+                                            host_endpoint_id,
+                                            node_id,
+                                        )
+                                        .await
+                                    } else if protocol == ALLEYCAT_ALPN {
+                                        handle_stream_v1(
+                                            send, recv, agents, config, conn_id, node_id,
+                                        )
+                                        .await
+                                    } else {
+                                        Err(anyhow!("unsupported negotiated protocol"))
+                                    };
+                                    if let Err(error) = result {
                                         info!(conn = conn_id, "alleycat stream ended: {error:#}");
                                     }
                                 });
+                            }
+                            if is_v2 {
+                                pairing.unregister_connection(&node_id, conn_id).await;
                             }
                             info!(conn = conn_id, "iroh connection closed");
                         }
@@ -120,7 +159,7 @@ pub async fn accept_loop(
     Ok(())
 }
 
-async fn handle_stream(
+async fn handle_stream_v1(
     mut send: iroh::endpoint::SendStream,
     mut recv: iroh::endpoint::RecvStream,
     agents: AgentManager,
@@ -235,6 +274,177 @@ async fn handle_stream(
     }
 }
 
+async fn handle_stream_v2(
+    mut send: iroh::endpoint::SendStream,
+    mut recv: iroh::endpoint::RecvStream,
+    agents: AgentManager,
+    pairing: PairingManager,
+    conn: usize,
+    host_endpoint_id: String,
+    authenticated_client_endpoint_id: String,
+) -> anyhow::Result<()> {
+    let request: RequestV2 = match read_json_frame(&mut recv).await {
+        Ok(request) => request,
+        Err(error) => {
+            // Malformed pre-auth frames are intentionally not echoed back or
+            // logged with their contents.
+            write_json_frame(&mut send, &ResponseV2::error(ErrorCodeV2::InvalidRequest)).await?;
+            return Err(anyhow!("invalid remora-link/2 request: {error:#}"));
+        }
+    };
+    if request.version() != PROTOCOL_VERSION_V2 {
+        write_json_frame(&mut send, &ResponseV2::error(ErrorCodeV2::InvalidRequest)).await?;
+        return Err(anyhow!("invalid remora-link/2 protocol version"));
+    }
+
+    let is_enrollment = matches!(request, RequestV2::Enroll { .. });
+    let preauth_error = if is_enrollment {
+        ErrorCodeV2::PairingUnavailable
+    } else {
+        ErrorCodeV2::AuthorizationRequired
+    };
+    let challenge = match pairing.issue_challenge(&request).await {
+        Ok(challenge) => challenge,
+        Err(_) => {
+            write_json_frame(&mut send, &ResponseV2::error(preauth_error)).await?;
+            return Err(anyhow!(preauth_error.message()));
+        }
+    };
+    write_json_frame(&mut send, &ResponseV2::challenge(challenge.clone())).await?;
+
+    let proof: ProofV2 =
+        match tokio::time::timeout(Duration::from_secs(31), read_json_frame(&mut recv)).await {
+            Ok(Ok(proof)) => proof,
+            _ => {
+                write_json_frame(&mut send, &ResponseV2::error(preauth_error)).await?;
+                return Err(anyhow!(preauth_error.message()));
+            }
+        };
+
+    if is_enrollment {
+        let response = match pairing
+            .redeem(
+                &request,
+                &challenge,
+                &proof,
+                &host_endpoint_id,
+                &authenticated_client_endpoint_id,
+            )
+            .await
+        {
+            Ok(device) => {
+                info!(conn, device_id = %device.device_id, "remora-link device enrolled");
+                ResponseV2::enrolled(device)
+            }
+            Err(_) => {
+                warn!(conn, "remora-link enrollment rejected");
+                ResponseV2::error(ErrorCodeV2::PairingUnavailable)
+            }
+        };
+        write_json_frame(&mut send, &response).await?;
+        return if response.ok {
+            Ok(())
+        } else {
+            Err(anyhow!("pairing unavailable"))
+        };
+    }
+
+    if pairing
+        .authorize_operation(
+            &request,
+            &challenge,
+            &proof,
+            &host_endpoint_id,
+            &authenticated_client_endpoint_id,
+        )
+        .await
+        .is_err()
+    {
+        warn!(conn, "rejecting remora-link device proof");
+        write_json_frame(
+            &mut send,
+            &ResponseV2::error(ErrorCodeV2::AuthorizationRequired),
+        )
+        .await?;
+        return Err(anyhow!("device authorization required"));
+    }
+
+    match request {
+        RequestV2::Enroll { .. } => unreachable!("enrollment handled above"),
+        RequestV2::ListAgents { .. } => {
+            info!(conn, "list_agents");
+            write_json_frame(&mut send, &ResponseV2::agents(agents.list_agents().await)).await?;
+            Ok(())
+        }
+        RequestV2::RestartAgent { agent, .. } => {
+            info!(conn, %agent, "restart_agent");
+            if !agents.agent_enabled(&agent) {
+                write_json_frame(&mut send, &ResponseV2::error(ErrorCodeV2::AgentUnavailable))
+                    .await?;
+                return Err(anyhow!("agent disabled or unknown: {agent}"));
+            }
+            if let Err(error) = agents.restart_agent(&agent).await {
+                warn!(conn, %agent, "restart_agent failed: {error:#}");
+                write_json_frame(&mut send, &ResponseV2::error(ErrorCodeV2::Internal)).await?;
+                return Err(error);
+            }
+            write_json_frame(&mut send, &ResponseV2::ok()).await?;
+            Ok(())
+        }
+        RequestV2::Connect { agent, resume, .. } => {
+            if !agents.agent_enabled(&agent) {
+                write_json_frame(&mut send, &ResponseV2::error(ErrorCodeV2::AgentUnavailable))
+                    .await?;
+                return Err(anyhow!("agent disabled or unknown: {agent}"));
+            }
+            let Some(agent_static) = AgentManager::agent_id(&agent) else {
+                write_json_frame(&mut send, &ResponseV2::error(ErrorCodeV2::AgentUnavailable))
+                    .await?;
+                return Err(anyhow!("unknown agent: {agent}"));
+            };
+
+            let last_seen = resume.as_ref().map(|resume: &Resume| resume.last_seq);
+            let resolved = agents.session_registry().resolve_attach(
+                authenticated_client_endpoint_id,
+                agent_static,
+                last_seen,
+            );
+            let session_info = SessionInfo {
+                attached: resolved.kind.into(),
+                current_seq: resolved.current_seq,
+                floor_seq: resolved.floor_seq,
+            };
+            info!(
+                conn,
+                %agent,
+                attached = ?session_info.attached,
+                current_seq = session_info.current_seq,
+                floor_seq = session_info.floor_seq,
+                "connect: dispatching to agent"
+            );
+            write_json_frame(&mut send, &ResponseV2::session(session_info)).await?;
+            let dispatch_last_seen = match resolved.kind {
+                alleycat_bridge_core::session::AttachKind::Resumed => resolved.effective_last_seen,
+                _ => None,
+            };
+            let result = agents
+                .serve_agent_with_session(
+                    &agent,
+                    IrohStream::new(send, recv),
+                    resolved.session,
+                    dispatch_last_seen,
+                )
+                .await
+                .with_context(|| format!("serving agent `{agent}`"));
+            match &result {
+                Ok(()) => info!(conn, %agent, "agent stream finished"),
+                Err(error) => warn!(conn, %agent, "agent stream errored: {error:#}"),
+            }
+            result
+        }
+    }
+}
+
 pub fn pair_payload(
     secret_key: &iroh::SecretKey,
     config: &HostConfig,
@@ -260,7 +470,7 @@ pub fn endpoint_home_relay(endpoint: Option<&Endpoint>) -> Option<String> {
         .map(|url| url.to_string())
 }
 
-fn local_host_name() -> Option<String> {
+pub(crate) fn local_host_name() -> Option<String> {
     hostname::get()
         .ok()
         .and_then(|name| name.into_string().ok())

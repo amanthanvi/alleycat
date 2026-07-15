@@ -2,7 +2,7 @@ use clap::Args;
 use qrcodegen::{QrCode, QrCodeEcc};
 
 use crate::cli;
-use crate::daemon::control::Request;
+use crate::daemon::control::{PairingResultV2, Request};
 use crate::protocol::PairPayload;
 
 #[derive(Args, Debug)]
@@ -10,6 +10,10 @@ pub struct PairArgs {
     /// Render an ASCII QR code for the pair payload.
     #[arg(long)]
     pub qr: bool,
+    /// Temporary migration escape hatch through 2026-10-15: emit the legacy
+    /// alleycat/1 bearer. It cannot create or upgrade a v2 device grant.
+    #[arg(long)]
+    pub legacy: bool,
 }
 
 pub async fn run(args: PairArgs) -> anyhow::Result<()> {
@@ -23,14 +27,26 @@ pub async fn run(args: PairArgs) -> anyhow::Result<()> {
     // where pkarr/DNS publishing is broken.
     cli::ensure_current_daemon().await?;
 
-    let resp = cli::send(Request::Pair).await?;
-    let payload: PairPayload = cli::decode_data(resp)?;
-
-    let json = serde_json::to_string(&payload)?;
-    println!("{json}");
-    if args.qr {
-        println!();
-        print_qr(&json)?;
+    if args.legacy {
+        let resp = cli::send(Request::PairLegacy).await?;
+        let payload: PairPayload = cli::decode_data(resp)?;
+        let json = serde_json::to_string(&payload)?;
+        println!("{json}");
+        if args.qr {
+            println!();
+            print_qr(&json)?;
+        }
+    } else {
+        let resp = cli::send(Request::Pair).await?;
+        let result: PairingResultV2 = cli::decode_data(resp)?;
+        // JSON is stable for integrations; the URI-like envelope is the
+        // canonical full-entropy copy/paste and QR representation.
+        println!("{}", serde_json::to_string(&result.invitation)?);
+        println!("{}", result.code);
+        if args.qr {
+            println!();
+            print_qr(&result.code)?;
+        }
     }
     Ok(())
 }

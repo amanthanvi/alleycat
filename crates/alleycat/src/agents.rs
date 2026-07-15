@@ -7,11 +7,10 @@ use std::time::{Duration, Instant};
 
 use alleycat_acp_bridge::AcpBridge;
 use alleycat_amp_bridge::AmpBridge;
-use alleycat_bridge_core::codex_resolver::{newest_codex_candidates_first, program_candidates};
 use alleycat_bridge_core::session::{Session, SessionRegistry, SessionRegistryConfig};
 use alleycat_bridge_core::{
-    Bridge, LaunchEnvironment, LaunchEnvironmentResolver, LocalLauncher, ProcessLauncher,
-    UserEnvironmentLauncher,
+    Bridge, HarnessKind, LaunchEnvironment, LaunchEnvironmentResolver, LocalLauncher,
+    ProcessLauncher, UserEnvironmentLauncher, ordered_harness_candidates,
 };
 use alleycat_claude_bridge::ClaudeBridge;
 use alleycat_devin_bridge::DevinBridge;
@@ -140,6 +139,23 @@ pub struct AgentManager {
 }
 
 impl AgentManager {
+    /// Static, read-only projection for offline status. Availability is false
+    /// because probing through the daemon launch environment may mutate agent
+    /// state or spawn helper processes; a running daemon supplies live values.
+    pub fn offline_agent_summaries() -> Vec<AgentInfo> {
+        MANIFESTS
+            .iter()
+            .map(|manifest| AgentInfo {
+                name: manifest.name.to_owned(),
+                display_name: manifest.display_name.to_owned(),
+                wire: manifest.wire.clone(),
+                available: false,
+                presentation: Some(manifest.presentation()),
+                capabilities: Some(manifest.capabilities()),
+            })
+            .collect()
+    }
+
     pub async fn new(config: Arc<ArcSwap<HostConfig>>) -> anyhow::Result<Self> {
         let snapshot = config.load();
 
@@ -1127,21 +1143,17 @@ fn codex_needs_windows_cmd_shell(bin: &Path) -> bool {
 /// report codex unavailable.
 async fn detect_codex(bin: &str, env: &LaunchEnvironment) -> CodexDetection {
     let fallback_bin = PathBuf::from(bin);
-    let candidates = {
-        let mut resolved = Vec::new();
-        if let Some(path) = env.find_on_path(bin) {
-            resolved.push(path);
-        }
-        resolved.extend(program_candidates(Path::new(bin)));
-        if resolved.is_empty() {
-            vec![fallback_bin.clone()]
-        } else {
-            resolved.sort();
-            resolved.dedup();
-            resolved
+    let candidates = match ordered_harness_candidates(HarnessKind::Codex, Some(Path::new(bin)), env)
+    {
+        Ok(candidates) => candidates
+            .into_iter()
+            .map(|candidate| candidate.path)
+            .collect(),
+        Err(error) => {
+            warn!(configured_bin = %bin, "codex executable resolution failed: {error}");
+            Vec::new()
         }
     };
-    let candidates = newest_codex_candidates_first(candidates).await;
 
     for candidate in candidates {
         let mut command = codex_command(&candidate);

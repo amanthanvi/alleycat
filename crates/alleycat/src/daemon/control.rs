@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::pairing_v2::{DeviceSummary, PairingInvitation};
 use crate::protocol::{AgentInfo, PairPayload};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,8 +13,11 @@ use crate::protocol::{AgentInfo, PairPayload};
 pub enum Request {
     /// Aggregate status: pid, node id, token fingerprint, agent availability.
     Status,
-    /// Pair payload as the daemon would emit it right now.
+    /// Mint a one-time, short-lived Remora Link v2 invitation.
     Pair,
+    /// Emit the legacy host-global v1 bearer. Compatibility escape hatch
+    /// only; it can never create or upgrade a v2 device grant.
+    PairLegacy,
     /// Mint a fresh token. Node id is preserved.
     Rotate,
     /// Re-read host.toml and swap agent config.
@@ -22,6 +26,10 @@ pub enum Request {
     Stop,
     /// Agent introspection.
     AgentsList,
+    /// Redacted, stable device-grant summaries.
+    DevicesList,
+    /// Selectively revoke one v2 device grant.
+    DeviceRevoke { device_id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +90,26 @@ pub struct RotateResult {
     pub payload: PairPayload,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PairingResultV2 {
+    pub invitation: PairingInvitation,
+    pub code: String,
+}
+
+impl std::fmt::Debug for PairingResultV2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PairingResultV2")
+            .field("invitation", &self.invitation)
+            .field("code", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceRevokeResult {
+    pub device: DeviceSummary,
+}
+
 /// First 16 hex chars of SHA-256(token).
 pub fn token_fingerprint(token: &str) -> String {
     use sha2::{Digest, Sha256};
@@ -105,6 +133,19 @@ mod tests {
         let s = serde_json::to_string(&Request::Rotate).unwrap();
         let back: Request = serde_json::from_str(&s).unwrap();
         assert!(matches!(back, Request::Rotate));
+    }
+
+    #[test]
+    fn device_revoke_request_round_trips() {
+        let request = Request::DeviceRevoke {
+            device_id: "device-1".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let decoded: Request = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            decoded,
+            Request::DeviceRevoke { device_id } if device_id == "device-1"
+        ));
     }
 
     #[test]

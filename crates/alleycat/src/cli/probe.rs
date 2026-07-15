@@ -7,7 +7,7 @@
 //!   print the agent table.
 //! - With `--agent <name>`: open a `connect`-style stream, send `initialize`
 //!   + `initialized` + the user-supplied method, and dump every JSON-RPC frame
-//!   in/out.
+//!     in/out.
 //!
 //! This diagnostic currently speaks only the retained v1 wire. Callers must
 //! opt into that compatibility path with `--legacy`; it is never selected as
@@ -380,6 +380,8 @@ async fn open_agent_stream(
     Ok((send, recv))
 }
 
+// The diagnostic transports intentionally mirror the CLI inputs one-for-one.
+#[allow(clippy::too_many_arguments)]
 async fn probe_agent_jsonl(
     conn: &iroh::endpoint::Connection,
     token: &str,
@@ -440,6 +442,8 @@ async fn probe_agent_jsonl(
     Ok(())
 }
 
+// Keep both diagnostic transports on the same explicit input contract.
+#[allow(clippy::too_many_arguments)]
 async fn probe_agent_websocket(
     conn: &iroh::endpoint::Connection,
     token: &str,

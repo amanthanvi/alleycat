@@ -18,6 +18,7 @@ mod windows;
 /// the systemd unit filename. Comes from the [`crate::App`] the binary
 /// supplied at startup (e.g. `com.sigkitten.kittylitter` for the shipped
 /// kittylitter wrapper, `dev.alleycat.alleycat` for the dev binary).
+#[allow(dead_code)] // used only by the macOS service implementation
 pub fn service_label() -> &'static str {
     crate::app().label
 }

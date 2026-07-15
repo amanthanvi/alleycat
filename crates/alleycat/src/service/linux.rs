@@ -51,10 +51,10 @@ pub(super) fn install() -> anyhow::Result<()> {
 
 pub(super) fn uninstall() -> anyhow::Result<()> {
     let unit_path = paths::systemd_unit_path()?;
-    if systemd_user_session_available() {
-        if let Ok(unit_name) = systemd_unit_name(&unit_path) {
-            let _ = run_systemctl(&["--user", "disable", "--now", &unit_name]);
-        }
+    if systemd_user_session_available()
+        && let Ok(unit_name) = systemd_unit_name(&unit_path)
+    {
+        let _ = run_systemctl(&["--user", "disable", "--now", &unit_name]);
     }
     if unit_path.exists() {
         std::fs::remove_file(&unit_path)

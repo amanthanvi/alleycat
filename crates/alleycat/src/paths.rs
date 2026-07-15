@@ -277,6 +277,7 @@ fn short_user_hash(input: &str) -> String {
 }
 
 /// `~/Library/LaunchAgents/dev.alleycat.alleycat.plist` on macOS.
+#[allow(dead_code)] // used only on macOS builds; helper kept callable everywhere
 pub fn launchd_plist_path() -> anyhow::Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {

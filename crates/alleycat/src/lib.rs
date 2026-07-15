@@ -138,6 +138,8 @@ enum Command {
     Agents(cli::agents::AgentsArgs),
     /// List or selectively revoke paired Remora Link devices.
     Devices(cli::devices::DevicesArgs),
+    /// Review, approve, or reject Remora Link enrollment claims.
+    Pairing(cli::pairing::PairingArgs),
     /// Connect to the daemon over iroh like a phone client and run JSON-RPC
     /// methods directly. Defaults to invoking `thread/list` on the chosen agent.
     Probe(cli::probe::ProbeArgs),
@@ -206,6 +208,10 @@ async fn async_main() -> anyhow::Result<()> {
             init_cli_logging();
             cli::devices::run(args).await
         }
+        Some(Command::Pairing(args)) => {
+            init_cli_logging();
+            cli::pairing::run(args).await
+        }
         Some(Command::Probe(args)) => {
             init_cli_logging();
             cli::probe::run(args).await
@@ -255,5 +261,104 @@ mod tests {
         let rendered = error.to_string();
         assert!(rendered.contains("remora-link 9.8.7-wrapper"));
         assert!(!rendered.contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn v2_pair_requires_an_explicit_runtime_allowlist() {
+        let error = cli_command(&App::DEFAULT)
+            .try_get_matches_from(["alleycat", "pair"])
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument);
+        assert!(error.to_string().contains("--runtime <ID>"));
+    }
+
+    #[test]
+    fn legacy_pair_remains_available_without_v2_options() {
+        let matches = cli_command(&App::DEFAULT)
+            .try_get_matches_from(["alleycat", "pair", "--legacy"])
+            .unwrap();
+        let cli = Cli::from_arg_matches(&matches).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Pair(cli::pair::PairArgs {
+                legacy: true,
+                runtime_ids,
+                ..
+            })) if runtime_ids.is_empty()
+        ));
+    }
+
+    #[test]
+    fn unattended_pair_parses_bounded_policy_options() {
+        let matches = cli_command(&App::DEFAULT)
+            .try_get_matches_from([
+                "alleycat",
+                "pair",
+                "--runtime",
+                "codex",
+                "--unattended",
+                "--i-understand-first-claimer-wins",
+                "--ttl-secs",
+                "45",
+            ])
+            .unwrap();
+        let cli = Cli::from_arg_matches(&matches).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Pair(cli::pair::PairArgs {
+                unattended: true,
+                ttl_secs: Some(45),
+                runtime_ids,
+                ..
+            })) if runtime_ids == ["codex"]
+        ));
+    }
+
+    #[test]
+    fn unattended_pair_requires_first_claimer_acknowledgement() {
+        let error = cli_command(&App::DEFAULT)
+            .try_get_matches_from(["alleycat", "pair", "--runtime", "codex", "--unattended"])
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument);
+        assert!(
+            error
+                .to_string()
+                .contains("--i-understand-first-claimer-wins")
+        );
+    }
+
+    #[test]
+    fn pairing_approve_accepts_only_closed_scope_values() {
+        let matches = cli_command(&App::DEFAULT)
+            .try_get_matches_from([
+                "alleycat",
+                "pairing",
+                "approve",
+                "claim-1",
+                "--runtime",
+                "codex",
+                "--scope",
+                "inspect",
+                "--scope",
+                "connect",
+            ])
+            .unwrap();
+        let cli = Cli::from_arg_matches(&matches).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Pairing(cli::pairing::PairingArgs {
+                command: cli::pairing::PairingCommand::Approve { scopes, .. },
+            })) if scopes == [
+                daemon::control::PairingApprovalScope::Inspect,
+                daemon::control::PairingApprovalScope::Connect,
+            ]
+        ));
+
+        let error = cli_command(&App::DEFAULT)
+            .try_get_matches_from([
+                "alleycat", "pairing", "approve", "claim-1", "--scope", "admin",
+            ])
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidValue);
     }
 }

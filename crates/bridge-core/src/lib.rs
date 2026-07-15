@@ -31,7 +31,9 @@ pub use launcher::{
     ProcessRole, ProcessSpec, StdioMode, shutdown_owned_child,
 };
 pub use notify::NotificationSender;
-pub use server::{Bridge, Conn, serve_stdio, serve_stream, serve_stream_with_session};
+pub use server::{
+    Bridge, Conn, serve_stdio, serve_stream, serve_stream_with_session, start_stream_with_session,
+};
 #[cfg(unix)]
 pub use server::{ServerOptions, serve_unix};
 pub use session::{AttachKind, AttachOutcome, Session, SessionRegistry, SessionRegistryConfig};

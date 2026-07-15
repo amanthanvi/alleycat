@@ -95,8 +95,7 @@ mod tests {
     #[tokio::test]
     async fn status_entry_path_fails_without_creating_host_or_control_state() {
         let mut home = TempHome::new();
-        let tmp = home.path().to_string_lossy().into_owned();
-        home.override_env(&[("TMPDIR", &tmp), ("XDG_RUNTIME_DIR", "")]);
+        home.override_env(&[("XDG_RUNTIME_DIR", "")]);
 
         let error = status_info().await.unwrap_err().to_string();
         assert!(error.contains("not initialized"));

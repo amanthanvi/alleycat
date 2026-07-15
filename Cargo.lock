@@ -111,6 +111,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "which",
+ "zeroize",
 ]
 
 [[package]]

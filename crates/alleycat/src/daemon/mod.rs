@@ -10,7 +10,7 @@ pub mod logging;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use arc_swap::ArcSwap;
@@ -27,8 +27,8 @@ use crate::paths;
 use crate::state;
 
 use self::control::{
-    DeviceRevokeResult, PairingResultV2, Request, Response, RotateResult, StatusInfo,
-    token_fingerprint,
+    DeviceRevokeResult, PairingApprovalResult, PairingApprovalScope, PairingRejectionResult,
+    PairingResultV2, Request, Response, RotateResult, StatusInfo, token_fingerprint,
 };
 
 /// Entry point for `alleycat serve`. Initializes file logging, acquires the
@@ -174,7 +174,7 @@ async fn handle_connection(
     let request: Request = read_json_frame(&mut stream)
         .await
         .context("reading request")?;
-    debug!(?request, "control request");
+    debug!(operation = request.operation_name(), "control request");
     let (response, after) = dispatch(Arc::clone(&daemon), request).await;
     write_json_frame(&mut stream, &response)
         .await
@@ -193,7 +193,15 @@ enum PostResponse {
 async fn dispatch(daemon: Arc<DaemonState>, request: Request) -> (Response, Option<PostResponse>) {
     match request {
         Request::Status => (handle_status(&daemon).await, None),
-        Request::Pair => (handle_pair(&daemon).await, None),
+        Request::Pair {
+            runtime_ids,
+            allow_restart,
+            unattended,
+            ttl_secs,
+        } => (
+            handle_pair(&daemon, runtime_ids, allow_restart, unattended, ttl_secs).await,
+            None,
+        ),
         Request::PairLegacy => (handle_pair_legacy(&daemon).await, None),
         Request::Rotate => (handle_rotate(&daemon).await, None),
         Request::Reload => (handle_reload(&daemon).await, None),
@@ -201,6 +209,18 @@ async fn dispatch(daemon: Arc<DaemonState>, request: Request) -> (Response, Opti
         Request::DevicesList => (handle_devices_list(&daemon).await, None),
         Request::DeviceRevoke { device_id } => {
             (handle_device_revoke(&daemon, &device_id).await, None)
+        }
+        Request::PairingsPending => (handle_pairings_pending(&daemon).await, None),
+        Request::PairingApprove {
+            claim_id,
+            runtime_ids,
+            scopes,
+        } => (
+            handle_pairing_approve(&daemon, &claim_id, runtime_ids, scopes).await,
+            None,
+        ),
+        Request::PairingReject { claim_id } => {
+            (handle_pairing_reject(&daemon, &claim_id).await, None)
         }
         Request::Stop => (Response::ok(), Some(PostResponse::Shutdown)),
     }
@@ -223,14 +243,38 @@ async fn handle_status(daemon: &DaemonState) -> Response {
     Response::ok_with(&info).unwrap_or_else(|e| Response::err(e.to_string()))
 }
 
-async fn handle_pair(daemon: &DaemonState) -> Response {
+async fn handle_pair(
+    daemon: &DaemonState,
+    runtime_ids: Vec<String>,
+    allow_restart: bool,
+    unattended: bool,
+    ttl_secs: Option<u64>,
+) -> Response {
+    if let Err(error) =
+        validate_pair_policy(daemon, &runtime_ids, allow_restart, unattended, ttl_secs)
+    {
+        return Response::err(error.to_string());
+    }
     wait_for_relay(&daemon.endpoint).await;
     let cfg = daemon.config.load();
     let relay = host::endpoint_home_relay(Some(&daemon.endpoint)).or_else(|| cfg.relay.clone());
     drop(cfg);
+    let mut options = if unattended {
+        crate::pairing_v2::InvitationOptions::unattended(runtime_ids[0].clone())
+    } else {
+        crate::pairing_v2::InvitationOptions::interactive(runtime_ids.clone(), allow_restart)
+    };
+    if let Some(ttl_secs) = ttl_secs {
+        options.ttl = Duration::from_secs(ttl_secs);
+    }
     let invitation = match daemon
         .pairing
-        .create_invitation(daemon.node_id.clone(), host::local_host_name(), relay)
+        .create_invitation(
+            daemon.node_id.clone(),
+            host::local_host_name(),
+            relay,
+            options,
+        )
         .await
     {
         Ok(invitation) => invitation,
@@ -242,6 +286,55 @@ async fn handle_pair(daemon: &DaemonState) -> Response {
     };
     Response::ok_with(&PairingResultV2 { invitation, code })
         .unwrap_or_else(|error| Response::err(error.to_string()))
+}
+
+fn validate_pair_policy(
+    daemon: &DaemonState,
+    runtime_ids: &[String],
+    allow_restart: bool,
+    unattended: bool,
+    ttl_secs: Option<u64>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(!runtime_ids.is_empty(), "at least one runtime is required");
+    anyhow::ensure!(runtime_ids.len() <= 16, "at most 16 runtimes are allowed");
+    let mut unique = std::collections::BTreeSet::new();
+    for runtime in runtime_ids {
+        anyhow::ensure!(
+            runtime.len() <= 64
+                && !runtime.is_empty()
+                && runtime
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')),
+            "invalid runtime ID"
+        );
+        anyhow::ensure!(unique.insert(runtime), "duplicate runtime ID");
+        anyhow::ensure!(
+            AgentManager::agent_id(runtime).is_some() && daemon.agents.agent_enabled(runtime),
+            "runtime '{runtime}' is unknown or disabled"
+        );
+    }
+    if unattended {
+        anyhow::ensure!(
+            runtime_ids.len() == 1,
+            "unattended pairing requires exactly one runtime"
+        );
+        anyhow::ensure!(!allow_restart, "unattended pairing cannot allow restart");
+        anyhow::ensure!(
+            ttl_secs.is_none_or(|ttl| ttl <= 60),
+            "unattended pairing TTL cannot exceed 60 seconds"
+        );
+    } else {
+        anyhow::ensure!(
+            ttl_secs
+                .is_none_or(|ttl| { ttl <= crate::pairing_v2::DEFAULT_INVITATION_TTL.as_secs() }),
+            "interactive pairing TTL cannot exceed 300 seconds"
+        );
+    }
+    anyhow::ensure!(
+        ttl_secs.is_none_or(|ttl| ttl > 0),
+        "pairing TTL must be positive"
+    );
+    Ok(())
 }
 
 async fn handle_pair_legacy(daemon: &DaemonState) -> Response {
@@ -303,6 +396,79 @@ async fn handle_device_revoke(daemon: &DaemonState, device_id: &str) -> Response
             .unwrap_or_else(|error| Response::err(error.to_string())),
         Ok(None) => Response::err("device not found"),
         Err(error) => Response::err(format!("revoking device: {error:#}")),
+    }
+}
+
+async fn handle_pairings_pending(daemon: &DaemonState) -> Response {
+    Response::ok_with(&daemon.pairing.list_pending().await)
+        .unwrap_or_else(|error| Response::err(error.to_string()))
+}
+
+async fn handle_pairing_approve(
+    daemon: &DaemonState,
+    claim_id: &str,
+    runtime_ids: Option<Vec<String>>,
+    scopes: Option<Vec<PairingApprovalScope>>,
+) -> Response {
+    let Some(pending) = daemon.pairing.pairing_claim_summary(claim_id).await else {
+        return Response::err("pending pairing claim not found");
+    };
+
+    let runtime_ids = runtime_ids.unwrap_or(pending.selected_runtime_ids);
+    let granted_scopes = match scopes {
+        Some(scopes) => {
+            let mut seen = std::collections::BTreeSet::new();
+            if !scopes.iter().all(|scope| seen.insert(*scope)) {
+                return Response::err("duplicate pairing approval scope");
+            }
+            let mut granted: Vec<_> = scopes.into_iter().map(device_scope).collect();
+            granted.push(crate::pairing_v2::DeviceScopeV2::SelfRevoke);
+            granted
+        }
+        None => pending.requested_scopes,
+    };
+
+    match daemon
+        .pairing
+        .approve_pending(claim_id, &runtime_ids, &granted_scopes)
+        .await
+    {
+        Ok(Some(device)) => Response::ok_with(&PairingApprovalResult {
+            device: crate::pairing_v2::DeviceSummary {
+                device_id: device.device_id,
+                display_name: device.display_name,
+                endpoint_fingerprint: device.endpoint_fingerprint,
+                device_key_fingerprint: device.device_key_fingerprint,
+                selected_runtime_ids: device.selected_runtime_ids,
+                granted_scopes: device.granted_scopes,
+                auth_epoch: device.auth_epoch,
+                state: crate::pairing_v2::GrantStateV2::Active,
+                created_at: device.created_at,
+                revoked_at: None,
+            },
+        })
+        .unwrap_or_else(|error| Response::err(error.to_string())),
+        Ok(None) => Response::err("pending pairing claim not found"),
+        Err(error) => Response::err(format!("approving pairing claim: {error:#}")),
+    }
+}
+
+async fn handle_pairing_reject(daemon: &DaemonState, claim_id: &str) -> Response {
+    match daemon.pairing.reject_pending(claim_id).await {
+        Ok(rejected) => Response::ok_with(&PairingRejectionResult {
+            claim_id: claim_id.to_string(),
+            rejected,
+        })
+        .unwrap_or_else(|error| Response::err(error.to_string())),
+        Err(error) => Response::err(format!("rejecting pairing claim: {error:#}")),
+    }
+}
+
+fn device_scope(scope: PairingApprovalScope) -> crate::pairing_v2::DeviceScopeV2 {
+    match scope {
+        PairingApprovalScope::Inspect => crate::pairing_v2::DeviceScopeV2::InspectRuntimes,
+        PairingApprovalScope::Connect => crate::pairing_v2::DeviceScopeV2::ConnectRuntime,
+        PairingApprovalScope::Restart => crate::pairing_v2::DeviceScopeV2::RestartRuntime,
     }
 }
 

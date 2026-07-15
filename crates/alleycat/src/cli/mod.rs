@@ -15,6 +15,7 @@ pub mod devices;
 pub mod logs;
 pub mod onboarding;
 pub mod pair;
+pub mod pairing;
 pub mod probe;
 pub mod reload;
 pub mod rotate;
@@ -40,12 +41,15 @@ pub async fn send(req: Request) -> anyhow::Result<Response> {
 
 /// Decode the typed payload from a successful response. Bails with the
 /// daemon-supplied error message when `ok` is false.
-pub fn decode_data<T: serde::de::DeserializeOwned>(resp: Response) -> anyhow::Result<T> {
+pub fn decode_data<T: serde::de::DeserializeOwned>(mut resp: Response) -> anyhow::Result<T> {
     if !resp.ok {
-        return Err(anyhow!(resp.error.unwrap_or_else(|| "daemon error".into())));
+        return Err(anyhow!(
+            resp.error.take().unwrap_or_else(|| "daemon error".into())
+        ));
     }
     let data = resp
         .data
+        .take()
         .ok_or_else(|| anyhow!("daemon returned empty data"))?;
     Ok(serde_json::from_value(data)?)
 }
@@ -70,10 +74,11 @@ pub fn require_ok(resp: &Response) -> anyhow::Result<()> {
 /// - autostart installed but wedged (launchd throttle, stale plist path) →
 ///   fall through to manual spawn
 ///
-/// Called at the top of subcommands that mutate user-visible state
-/// (`pair`, `rotate`, `devices revoke`) and at the top of the bare-invocation onboarding
-/// flow, so users never have to know whether a daemon is up, fresh, or
-/// stale — `npx kittylitter` Just Works regardless of prior state.
+/// Called at the top of subcommands that mutate user-visible state (`pair`,
+/// `pairing approve`/`reject`, `rotate`, `devices revoke`) and at the top of
+/// the bare-invocation onboarding flow, so users never have to know whether a
+/// daemon is up, fresh, or stale — `npx kittylitter` Just Works regardless of
+/// prior state.
 pub async fn ensure_current_daemon() -> anyhow::Result<()> {
     if !ipc::is_daemon_running().await {
         // Nothing listening — nothing to compare versions against. Just

@@ -248,16 +248,77 @@ where
     B: Bridge + ?Sized,
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    run_prepared_stream(bridge, prepare_stream(stream, session, last_seen)).await
+}
+
+/// Install a session attachment synchronously, then run its long-lived stream
+/// pump in a detached task.
+///
+/// Callers that fence authorization changes can retain their fence until this
+/// function returns. At that point the attachment is already installed and no
+/// bridge/session setup remains; the returned task only drives the established
+/// stream and may be awaited after releasing the fence.
+pub fn start_stream_with_session<B, S>(
+    bridge: Arc<B>,
+    stream: S,
+    session: Arc<Session>,
+    last_seen: Option<u64>,
+) -> tokio::task::JoinHandle<anyhow::Result<()>>
+where
+    B: Bridge + ?Sized,
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let prepared = prepare_stream(stream, session, last_seen);
+    tokio::spawn(run_prepared_stream(bridge, prepared))
+}
+
+struct PreparedStream<S> {
+    reader: BufReader<tokio::io::ReadHalf<S>>,
+    writer_task: tokio::task::JoinHandle<()>,
+    conn: Conn,
+    session: Arc<Session>,
+}
+
+impl<S> Drop for PreparedStream<S> {
+    fn drop(&mut self) {
+        // `start_stream_with_session` is used inside an authorization setup
+        // deadline. If that task is cancelled, tear down the attachment and
+        // drainer synchronously instead of leaving a detached session behind.
+        self.session.drop_attachment();
+        self.writer_task.abort();
+    }
+}
+
+fn prepare_stream<S>(stream: S, session: Arc<Session>, last_seen: Option<u64>) -> PreparedStream<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let (reader, writer) = tokio::io::split(stream);
-    let mut reader = BufReader::new(reader);
+    let reader = BufReader::new(reader);
     let conn = Conn::from_session(Arc::clone(&session));
 
     let attach = session.install_attachment(last_seen);
     let writer_task = tokio::spawn(drain_attachment(writer, attach, Arc::clone(&session)));
 
-    let result = run_reader(bridge, &conn, &mut reader).await;
-    session.drop_attachment();
-    let _ = writer_task.await;
+    PreparedStream {
+        reader,
+        writer_task,
+        conn,
+        session,
+    }
+}
+
+async fn run_prepared_stream<B, S>(
+    bridge: Arc<B>,
+    mut prepared: PreparedStream<S>,
+) -> anyhow::Result<()>
+where
+    B: Bridge + ?Sized,
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let result = run_reader(bridge, &prepared.conn, &mut prepared.reader).await;
+    prepared.session.drop_attachment();
+    let _ = (&mut prepared.writer_task).await;
     result
 }
 
@@ -378,5 +439,50 @@ pub fn json_error_from_anyhow(error: anyhow::Error) -> JsonRpcError {
         code: error_codes::INTERNAL_ERROR,
         message: format!("{error:#}"),
         data: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoopBridge;
+
+    #[async_trait]
+    impl Bridge for NoopBridge {
+        async fn initialize(&self, _ctx: &Conn, _params: Value) -> Result<Value, JsonRpcError> {
+            Ok(Value::Null)
+        }
+
+        async fn dispatch(
+            &self,
+            _ctx: &Conn,
+            _method: &str,
+            _params: Value,
+        ) -> Result<Value, JsonRpcError> {
+            Ok(Value::Null)
+        }
+    }
+
+    #[tokio::test]
+    async fn started_stream_installs_attachment_before_returning_handle() {
+        let session = Arc::new(Session::new("test", "credential-1".into(), 16, 4096));
+        let (server, client) = tokio::io::duplex(128);
+
+        let running =
+            start_stream_with_session(Arc::new(NoopBridge), server, Arc::clone(&session), None);
+
+        assert!(
+            session.is_attached(),
+            "the connect-start fence may only drop after attachment installation"
+        );
+
+        drop(client);
+        tokio::time::timeout(std::time::Duration::from_secs(1), running)
+            .await
+            .expect("established stream should stop after peer closure")
+            .expect("stream task should not panic")
+            .expect("stream should finish cleanly");
+        assert!(!session.is_attached());
     }
 }

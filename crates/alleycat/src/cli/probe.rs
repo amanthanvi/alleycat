@@ -7,7 +7,11 @@
 //!   print the agent table.
 //! - With `--agent <name>`: open a `connect`-style stream, send `initialize`
 //!   + `initialized` + the user-supplied method, and dump every JSON-RPC frame
-//!   in/out.
+//!     in/out.
+//!
+//! This diagnostic currently speaks only the retained v1 wire. Callers must
+//! opt into that compatibility path with `--legacy`; it is never selected as
+//! an implicit fallback from Remora Link v2.
 //!
 //! Identity: reads the daemon's local `host.toml` + `host.key` so the probe
 //! authenticates with the same node id and token a phone holding the QR
@@ -35,6 +39,10 @@ use crate::protocol::{ALLEYCAT_ALPN, PROTOCOL_VERSION, PairPayload, Request, Res
 
 #[derive(Args, Debug)]
 pub struct ProbeArgs {
+    /// Explicitly use the temporary alleycat/1 compatibility protocol. The
+    /// probe does not mint, consume, or upgrade Remora Link v2 credentials.
+    #[arg(long)]
+    pub legacy: bool,
     /// Agent to connect to (`pi`, `opencode`, `codex`). Omit to round-trip a
     /// `list_agents` call instead.
     #[arg(long)]
@@ -109,6 +117,8 @@ pub enum ProbeWire {
 }
 
 pub async fn run(args: ProbeArgs) -> anyhow::Result<()> {
+    require_explicit_legacy(args.legacy)?;
+
     if args.node_id.is_none() {
         cli::ensure_current_daemon().await?;
     }
@@ -155,13 +165,23 @@ async fn load_local_pair_payload(
     prefer_daemon: bool,
 ) -> PairPayload {
     if prefer_daemon
-        && let Ok(resp) = cli::send(ControlRequest::Pair).await
+        && let Ok(resp) = cli::send(ControlRequest::PairLegacy).await
         && let Ok(payload) = cli::decode_data::<PairPayload>(resp)
     {
         return payload;
     }
 
     host::pair_payload(server_secret, cfg, None)
+}
+
+fn require_explicit_legacy(legacy: bool) -> anyhow::Result<()> {
+    if legacy {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "probe currently supports only the explicit --legacy compatibility path; it will not silently downgrade Remora Link v2"
+        ))
+    }
 }
 
 async fn probe_with_endpoint(
@@ -360,6 +380,8 @@ async fn open_agent_stream(
     Ok((send, recv))
 }
 
+// The diagnostic transports intentionally mirror the CLI inputs one-for-one.
+#[allow(clippy::too_many_arguments)]
 async fn probe_agent_jsonl(
     conn: &iroh::endpoint::Connection,
     token: &str,
@@ -420,6 +442,8 @@ async fn probe_agent_jsonl(
     Ok(())
 }
 
+// Keep both diagnostic transports on the same explicit input contract.
+#[allow(clippy::too_many_arguments)]
 async fn probe_agent_websocket(
     conn: &iroh::endpoint::Connection,
     token: &str,
@@ -771,4 +795,16 @@ async fn build_client_endpoint() -> anyhow::Result<Endpoint> {
 fn short_token(token: &str) -> String {
     use sha2::{Digest, Sha256};
     hex::encode(&Sha256::digest(token.as_bytes())[..4])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_never_implicitly_downgrades_to_v1() {
+        let error = require_explicit_legacy(false).unwrap_err().to_string();
+        assert!(error.contains("explicit --legacy"));
+        assert!(require_explicit_legacy(true).is_ok());
+    }
 }

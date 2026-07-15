@@ -18,7 +18,11 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 use tracing::debug;
 
-use crate::launcher::{ChildProcess, ProcessLauncher, ProcessSpec};
+use crate::harness::{
+    HarnessLaunchReceipt, ResolvedExecutable, inferred_receipt, probe_harness_version,
+    resolve_harness_executable, validate_local_working_directory,
+};
+use crate::launcher::{ChildProcess, ProcessLauncher, ProcessRole, ProcessSpec};
 
 type EnvMap = HashMap<OsString, OsString>;
 
@@ -46,11 +50,27 @@ pub struct LaunchEnvironmentPolicy {
 impl Default for LaunchEnvironmentPolicy {
     fn default() -> Self {
         Self {
+            // Capture the user's terminal PATH even when Alleycat was started
+            // by launchd/systemd. The shell runs from HOME, never the target
+            // project, so project-local providers remain trust-gated below.
+            load_user_shell: true,
+            load_mise: false,
+            load_direnv: false,
+            provider_timeout: DEFAULT_PROVIDER_TIMEOUT,
+            cache_ttl: DEFAULT_CACHE_TTL,
+        }
+    }
+}
+
+impl LaunchEnvironmentPolicy {
+    /// Opt in to terminal/project environment providers after the caller has
+    /// established that the working directory is trusted.
+    pub fn trusted_project() -> Self {
+        Self {
             load_user_shell: true,
             load_mise: true,
             load_direnv: true,
-            provider_timeout: DEFAULT_PROVIDER_TIMEOUT,
-            cache_ttl: DEFAULT_CACHE_TTL,
+            ..Self::default()
         }
     }
 }
@@ -65,6 +85,12 @@ impl LaunchEnvironment {
     pub fn current() -> Self {
         Self {
             vars: std::env::vars_os().collect(),
+        }
+    }
+
+    pub fn from_pairs(pairs: impl IntoIterator<Item = (OsString, OsString)>) -> Self {
+        Self {
+            vars: pairs.into_iter().collect(),
         }
     }
 
@@ -143,6 +169,7 @@ pub struct UserEnvironmentLauncher {
     inner: Arc<dyn ProcessLauncher>,
     resolver: LaunchEnvironmentResolver,
     program_aliases: Arc<HashMap<OsString, Vec<OsString>>>,
+    version_cache: Arc<Mutex<HashMap<PathBuf, Option<String>>>>,
 }
 
 impl UserEnvironmentLauncher {
@@ -162,6 +189,7 @@ impl UserEnvironmentLauncher {
             inner,
             resolver,
             program_aliases: Arc::new(HashMap::new()),
+            version_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -184,17 +212,57 @@ impl ProcessLauncher for UserEnvironmentLauncher {
         mut spec: ProcessSpec,
     ) -> BoxFuture<'_, std::io::Result<Box<dyn ChildProcess>>> {
         Box::pin(async move {
+            if spec.role == ProcessRole::Agent
+                && let Some(cwd) = spec.cwd.as_deref()
+            {
+                spec.cwd = Some(validate_local_working_directory(cwd)?);
+            }
             let explicit_env = std::mem::take(&mut spec.env);
             let mut launch_env = self.resolver.resolve(spec.cwd.as_deref()).await;
             merge_env(
                 &mut launch_env.vars,
                 explicit_env.iter().cloned().collect::<EnvMap>(),
             );
-            spec.program =
-                resolve_program_for_launch(&spec.program, &launch_env, &self.program_aliases);
+            let resolved =
+                resolve_program_for_launch(&spec.program, &launch_env, &self.program_aliases)?;
+            spec.program = resolved
+                .as_ref()
+                .map(|resolved| resolved.path.clone())
+                .unwrap_or_else(|| spec.program.clone());
+
+            let version = if spec.role == ProcessRole::Agent {
+                if let Some(resolved) = resolved.as_ref() {
+                    let cached = self.version_cache.lock().await.get(&resolved.path).cloned();
+                    match cached {
+                        Some(version) => version,
+                        None => {
+                            let version = probe_harness_version(resolved, &launch_env)
+                                .await
+                                .ok()
+                                .flatten();
+                            self.version_cache
+                                .lock()
+                                .await
+                                .insert(resolved.path.clone(), version.clone());
+                            version
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             spec.env = launch_env.into_pairs();
             spec.env_clear = true;
-            self.inner.launch(spec).await
+            let cwd = spec.cwd.clone();
+            let child = self.inner.launch(spec).await?;
+            if let Some(resolved) = resolved {
+                let receipt = inferred_receipt(resolved, version, child.id(), cwd);
+                Ok(Box::new(ReceiptChild { child, receipt }) as Box<dyn ChildProcess>)
+            } else {
+                Ok(child)
+            }
         })
     }
 }
@@ -203,31 +271,46 @@ async fn resolve_uncached(
     cwd: Option<&Path>,
     policy: &LaunchEnvironmentPolicy,
 ) -> LaunchEnvironment {
+    let shell = detect_user_shell();
+    resolve_uncached_with_shell(cwd, policy, shell.as_deref()).await
+}
+
+async fn resolve_uncached_with_shell(
+    cwd: Option<&Path>,
+    policy: &LaunchEnvironmentPolicy,
+    shell: Option<&Path>,
+) -> LaunchEnvironment {
     let mut env: EnvMap = std::env::vars_os().collect();
 
-    if policy.load_user_shell {
-        if let Some(shell) = detect_user_shell() {
-            match capture_shell_env(&shell, cwd, &env, policy.provider_timeout).await {
-                Ok(shell_env) => merge_env(&mut env, shell_env),
-                Err(error) => debug!(
-                    shell = %shell.display(),
-                    error = %error,
-                    "launch environment shell snapshot skipped"
-                ),
-            }
+    if policy.load_user_shell
+        && let Some(shell) = shell
+    {
+        // Never start a login/interactive shell inside an untrusted project:
+        // shell hooks such as automatic direnv activation could execute it.
+        let shell_cwd = env
+            .get(OsStr::new("HOME"))
+            .map(PathBuf::from)
+            .filter(|path| path.is_dir());
+        match capture_shell_env(shell, shell_cwd.as_deref(), &env, policy.provider_timeout).await {
+            Ok(shell_env) => merge_env(&mut env, shell_env),
+            Err(error) => debug!(
+                shell = %shell.display(),
+                error = %error,
+                "launch environment shell snapshot skipped"
+            ),
         }
     }
 
-    if policy.load_mise {
-        if let Err(error) = apply_mise_env(cwd, &mut env, policy.provider_timeout).await {
-            debug!(error = %error, "launch environment mise provider skipped");
-        }
+    if policy.load_mise
+        && let Err(error) = apply_mise_env(cwd, &mut env, policy.provider_timeout).await
+    {
+        debug!(error = %error, "launch environment mise provider skipped");
     }
 
-    if policy.load_direnv {
-        if let Err(error) = apply_direnv(cwd, &mut env, policy.provider_timeout).await {
-            debug!(error = %error, "launch environment direnv provider skipped");
-        }
+    if policy.load_direnv
+        && let Err(error) = apply_direnv(cwd, &mut env, policy.provider_timeout).await
+    {
+        debug!(error = %error, "launch environment direnv provider skipped");
     }
 
     LaunchEnvironment { vars: env }
@@ -243,28 +326,98 @@ fn resolve_program_for_launch(
     program: &Path,
     env: &LaunchEnvironment,
     aliases: &HashMap<OsString, Vec<OsString>>,
-) -> PathBuf {
+) -> std::io::Result<Option<ResolvedExecutable>> {
+    if let Some(harness) = crate::harness::HarnessKind::from_program(program) {
+        return resolve_harness_executable(harness, Some(program), env)
+            .map(Some)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::NotFound, error));
+    }
+
     if program.components().count() > 1 {
-        return program.to_path_buf();
+        if !program.is_absolute() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "configured executable path must be absolute: {}",
+                    program.display()
+                ),
+            ));
+        }
+        if !program.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("configured executable was not found: {}", program.display()),
+            ));
+        }
+        return Ok(None);
     }
 
-    if let Some(name) = program.as_os_str().to_str()
-        && let Some(path) = env.find_on_path(name)
-    {
-        return path;
-    }
-
+    let mut names = vec![program.as_os_str()];
     if let Some(alias_names) = aliases.get(program.as_os_str()) {
-        for alias in alias_names {
-            if let Some(alias) = alias.to_str()
-                && let Some(path) = env.find_on_path(alias)
-            {
-                return path;
-            }
+        names.extend(alias_names.iter().map(OsString::as_os_str));
+    }
+    for name in names {
+        if let Some(name) = name.to_str()
+            && let Some(path) = env.find_on_path(name)
+        {
+            return Ok(crate::harness::HarnessKind::from_program(&path)
+                .and_then(|harness| resolve_harness_executable(harness, Some(&path), env).ok()));
         }
     }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!(
+            "executable `{}` was not found on the resolved user PATH",
+            program.display()
+        ),
+    ))
+}
 
-    program.to_path_buf()
+struct ReceiptChild {
+    child: Box<dyn ChildProcess>,
+    receipt: HarnessLaunchReceipt,
+}
+
+impl ChildProcess for ReceiptChild {
+    fn take_stdin(&mut self) -> Option<crate::launcher::ChildStdin> {
+        self.child.take_stdin()
+    }
+
+    fn take_stdout(&mut self) -> Option<crate::launcher::ChildStdout> {
+        self.child.take_stdout()
+    }
+
+    fn take_stderr(&mut self) -> Option<crate::launcher::ChildStderr> {
+        self.child.take_stderr()
+    }
+
+    fn id(&self) -> Option<u32> {
+        self.child.id()
+    }
+
+    fn launch_receipt(&self) -> Option<&HarnessLaunchReceipt> {
+        Some(&self.receipt)
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    fn wait(&mut self) -> BoxFuture<'_, std::io::Result<std::process::ExitStatus>> {
+        self.child.wait()
+    }
+
+    fn terminate_tree(&mut self) -> BoxFuture<'_, std::io::Result<()>> {
+        self.child.terminate_tree()
+    }
+
+    fn kill_tree(&mut self) -> BoxFuture<'_, std::io::Result<()>> {
+        self.child.kill_tree()
+    }
+
+    fn kill(&mut self) -> BoxFuture<'_, std::io::Result<()>> {
+        self.child.kill()
+    }
 }
 
 fn detect_user_shell() -> Option<PathBuf> {
@@ -566,6 +719,60 @@ mod tests {
     }
 
     #[test]
+    fn default_launch_policy_loads_user_path_but_not_project_providers() {
+        let policy = LaunchEnvironmentPolicy::default();
+        assert!(policy.load_user_shell);
+        assert!(!policy.load_mise);
+        assert!(!policy.load_direnv);
+
+        let trusted = LaunchEnvironmentPolicy::trusted_project();
+        assert!(trusted.load_user_shell);
+        assert!(trusted.load_mise);
+        assert!(trusted.load_direnv);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn default_policy_resolves_harness_from_terminal_path_not_service_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let bin_dir = temp.path().join("terminal-bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        let harness = bin_dir.join("claude");
+        std::fs::write(&harness, "#!/bin/sh\nexit 0\n").expect("harness");
+        let mut harness_permissions = std::fs::metadata(&harness)
+            .expect("harness metadata")
+            .permissions();
+        harness_permissions.set_mode(0o755);
+        std::fs::set_permissions(&harness, harness_permissions).expect("harness chmod");
+
+        let shell = temp.path().join("user-shell");
+        std::fs::write(
+            &shell,
+            format!("#!/bin/sh\nprintf 'PATH={}\\n'\n", bin_dir.display()),
+        )
+        .expect("shell");
+        let mut shell_permissions = std::fs::metadata(&shell)
+            .expect("shell metadata")
+            .permissions();
+        shell_permissions.set_mode(0o755);
+        std::fs::set_permissions(&shell, shell_permissions).expect("shell chmod");
+
+        let policy = LaunchEnvironmentPolicy::default();
+        let resolved_env = resolve_uncached_with_shell(None, &policy, Some(&shell)).await;
+        let resolved =
+            resolve_harness_executable(crate::harness::HarnessKind::Claude, None, &resolved_env)
+                .expect("terminal PATH harness");
+
+        assert_eq!(resolved.source, crate::harness::ExecutableSource::UserPath);
+        assert_eq!(
+            resolved.path,
+            harness.canonicalize().expect("canonical harness")
+        );
+    }
+
+    #[test]
     fn json_provider_sets_and_removes_values() {
         let mut env = EnvMap::new();
         env.insert(OsString::from("REMOVE_ME"), OsString::from("old"));
@@ -677,7 +884,7 @@ mod tests {
             captured: Arc::clone(&captured),
         });
         let launcher = UserEnvironmentLauncher::with_policy(base, policy);
-        let mut spec = ProcessSpec::new("agent");
+        let mut spec = ProcessSpec::new("/bin/echo");
         spec.env = vec![("EXPLICIT_ENV".into(), "wins".into())];
 
         let _ = launcher.launch(spec).await;
@@ -751,7 +958,7 @@ mod tests {
             .expect("capture lock")
             .take()
             .expect("captured spec");
-        assert_eq!(captured.program, bin);
+        assert_eq!(captured.program, bin.canonicalize().expect("canonical bin"));
         assert!(captured.env_clear);
     }
 

@@ -22,6 +22,15 @@ pub async fn load_or_create_secret_key() -> anyhow::Result<SecretKey> {
     }
 }
 
+/// Read the initialized host identity without creating any state.
+pub async fn load_existing_secret_key() -> anyhow::Result<SecretKey> {
+    let path = paths::existing_host_key_file()?;
+    let raw = fs::read_to_string(&path)
+        .await
+        .with_context(|| format!("reading initialized host key {}", path.display()))?;
+    parse_secret_key(raw.trim()).with_context(|| format!("parsing host key {}", path.display()))
+}
+
 pub async fn acquire_lock() -> anyhow::Result<RwLock<std::fs::File>> {
     let path = paths::host_lock_file()?;
     tokio::task::spawn_blocking(move || -> anyhow::Result<_> {

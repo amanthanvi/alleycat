@@ -57,6 +57,13 @@ pub fn config_dir() -> anyhow::Result<PathBuf> {
 
 /// Per-user state directory. Holds host.key, host.lock, daemon.pid.
 pub fn state_dir() -> anyhow::Result<PathBuf> {
+    let path = state_dir_path()?;
+    ensure_dir(&path)?;
+    Ok(path)
+}
+
+/// Resolve the per-user state directory without creating it.
+fn state_dir_path() -> anyhow::Result<PathBuf> {
     let dirs = project_dirs()?;
     let path = if let Some(state) = dirs.state_dir() {
         state.to_path_buf()
@@ -71,7 +78,6 @@ pub fn state_dir() -> anyhow::Result<PathBuf> {
     } else {
         dirs.config_dir().to_path_buf()
     };
-    ensure_dir(&path)?;
     Ok(path)
 }
 
@@ -109,9 +115,28 @@ pub fn host_config_file() -> anyhow::Result<PathBuf> {
     Ok(config_dir()?.join("host.toml"))
 }
 
+/// Read-only variant for inspection commands. Unlike [`host_config_file`],
+/// this never creates the config directory.
+pub fn existing_host_config_file() -> anyhow::Result<PathBuf> {
+    Ok(project_dirs()?.config_dir().join("host.toml"))
+}
+
 /// `<state_dir>/host.key` — 32-byte iroh secret.
 pub fn host_key_file() -> anyhow::Result<PathBuf> {
     Ok(state_dir()?.join("host.key"))
+}
+
+/// Read-only variant for inspection commands. Unlike [`host_key_file`], this
+/// never creates the state directory.
+pub fn existing_host_key_file() -> anyhow::Result<PathBuf> {
+    Ok(state_dir_path()?.join("host.key"))
+}
+
+/// `<state_dir>/pairing-v2.json` — v2 invitations, device grants, and
+/// revocation tombstones. This intentionally lives beside the Remora Link
+/// host identity rather than in the legacy `host.toml` token configuration.
+pub fn pairing_v2_file() -> anyhow::Result<PathBuf> {
+    Ok(state_dir()?.join("pairing-v2.json"))
 }
 
 /// `<state_dir>/host.lock` — single-instance fd lock.
@@ -134,13 +159,27 @@ const SUN_PATH_MAX: usize = 104 - 1;
 /// Unix domain socket path the daemon listens on. Errors on Windows — call
 /// [`control_pipe_name`] there instead.
 pub fn control_socket_path() -> anyhow::Result<PathBuf> {
+    control_socket_path_impl(true)
+}
+
+/// Read-only client-side variant of [`control_socket_path`]. It resolves the
+/// same path without creating either a runtime socket directory or a state
+/// directory. Inspection commands must use this path before deciding whether
+/// a daemon is running.
+pub fn existing_control_socket_path() -> anyhow::Result<PathBuf> {
+    control_socket_path_impl(false)
+}
+
+fn control_socket_path_impl(create_parent: bool) -> anyhow::Result<PathBuf> {
     #[cfg(unix)]
     {
         let base = base_dirs()?;
         let home = base.home_dir().to_string_lossy().to_string();
         let user = short_user_hash(&home);
-        let dir = control_socket_dir(&user)?;
-        ensure_dir(&dir)?;
+        let dir = control_socket_dir(&user, create_parent)?;
+        if create_parent {
+            ensure_dir(&dir)?;
+        }
         let sock = dir.join("control.sock");
         let len = sock.as_os_str().len();
         if len > SUN_PATH_MAX {
@@ -168,7 +207,7 @@ pub fn control_socket_path() -> anyhow::Result<PathBuf> {
 ///
 /// First candidate whose `<dir>/control.sock` fits in `SUN_PATH_MAX` wins.
 #[cfg(unix)]
-fn control_socket_dir(user: &str) -> anyhow::Result<PathBuf> {
+fn control_socket_dir(user: &str, _create_state_dir: bool) -> anyhow::Result<PathBuf> {
     let segment = format!("{app}-{user}", app = crate::app().application);
     let mut candidates: Vec<PathBuf> = Vec::new();
 
@@ -180,7 +219,12 @@ fn control_socket_dir(user: &str) -> anyhow::Result<PathBuf> {
                 candidates.push(rt.join(&segment));
             }
         }
-        if let Ok(state) = state_dir() {
+        let state = if _create_state_dir {
+            state_dir()
+        } else {
+            state_dir_path()
+        };
+        if let Ok(state) = state {
             candidates.push(state.join(&segment));
         }
     }
@@ -233,6 +277,7 @@ fn short_user_hash(input: &str) -> String {
 }
 
 /// `~/Library/LaunchAgents/dev.alleycat.alleycat.plist` on macOS.
+#[allow(dead_code)] // used only on macOS builds; helper kept callable everywhere
 pub fn launchd_plist_path() -> anyhow::Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -332,6 +377,14 @@ mod tests {
         let kf = host_key_file().unwrap();
         assert_eq!(kf.file_name().unwrap(), "host.key");
         assert!(kf.starts_with(state_dir().unwrap()));
+    }
+
+    #[test]
+    fn pairing_v2_store_lives_under_state_dir() {
+        let _h = TempHome::new();
+        let store = pairing_v2_file().unwrap();
+        assert_eq!(store.file_name().unwrap(), "pairing-v2.json");
+        assert!(store.starts_with(state_dir().unwrap()));
     }
 
     #[cfg(unix)]

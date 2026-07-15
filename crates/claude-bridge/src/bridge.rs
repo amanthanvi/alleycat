@@ -11,7 +11,8 @@ use std::time::Duration;
 
 use alleycat_bridge_core::server::{Bridge, Conn};
 use alleycat_bridge_core::{
-    JsonRpcError, LocalLauncher, ProcessLauncher, ThreadIndex as CoreThreadIndex, error_codes,
+    JsonRpcError, LocalLauncher, ProcessLauncher, ThreadIndex as CoreThreadIndex,
+    UserEnvironmentLauncher, error_codes,
 };
 use alleycat_codex_proto as p;
 use anyhow::Result;
@@ -233,9 +234,10 @@ impl ClaudeBridgeBuilder {
 
     pub async fn build(self) -> Result<Arc<ClaudeBridge>> {
         let claude_bin = self.agent_bin.unwrap_or_else(|| PathBuf::from("claude"));
-        let launcher: Arc<dyn ProcessLauncher> = self
-            .launcher
-            .unwrap_or_else(|| Arc::new(LocalLauncher) as Arc<dyn ProcessLauncher>);
+        let launcher: Arc<dyn ProcessLauncher> = self.launcher.unwrap_or_else(|| {
+            let local: Arc<dyn ProcessLauncher> = Arc::new(LocalLauncher);
+            Arc::new(UserEnvironmentLauncher::new(local)) as Arc<dyn ProcessLauncher>
+        });
         let codex_home = self.codex_home.unwrap_or_else(default_codex_home);
         if let Err(err) = std::fs::create_dir_all(&codex_home) {
             tracing::warn!(?codex_home, %err, "failed to ensure codex_home; continuing");
@@ -305,6 +307,10 @@ impl Bridge for ClaudeBridge {
             return;
         }
         tracing::debug!(method, "ignoring unknown client notification");
+    }
+
+    async fn shutdown(&self) {
+        self.pool.shutdown_all().await;
     }
 }
 

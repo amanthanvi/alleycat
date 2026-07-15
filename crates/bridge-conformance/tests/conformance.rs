@@ -77,8 +77,7 @@ async fn conformance_hermes() {
 }
 
 #[tokio::test]
-// Temporarily un-ignored to test real Grok ACP
-// #[ignore = "live conformance — requires ACP agent (e.g. `devin` or `grok`) on PATH"]
+#[ignore = "live conformance — requires ACP agent (e.g. `devin` or `grok`) on PATH"]
 async fn conformance_acp() {
     let _guard = live_test_guard().await;
     run_target(TargetId::Acp).await;

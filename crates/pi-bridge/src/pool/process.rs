@@ -25,10 +25,12 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use alleycat_bridge_core::{
-    ChildProcess, ChildStderr, ChildStdin, ChildStdout, LocalLauncher, ProcessLauncher,
-    ProcessRole, ProcessSpec, StdioMode,
+    ChildProcess, ChildStderr, ChildStdin, ChildStdout, HarnessLaunchReceipt, LocalLauncher,
+    ProcessLauncher, ProcessRole, ProcessSpec, StdioMode, UserEnvironmentLauncher,
+    shutdown_owned_child,
 };
 use anyhow::{Context, Result, anyhow};
 use serde::Serialize;
@@ -96,6 +98,9 @@ pub struct PiProcessHandle {
     pi_bin: PathBuf,
     /// Process id of the spawned child, captured at spawn for diagnostics.
     pid: Option<u32>,
+    /// Redacted executable/version/cwd metadata emitted by the hardened local
+    /// launcher. Remote/custom launchers may not provide one.
+    launch_receipt: Option<HarnessLaunchReceipt>,
     /// Sender end of the writer mpsc — closing this is the signal to the
     /// writer task to drop pi's stdin (which makes pi exit cleanly).
     writer_tx: mpsc::UnboundedSender<String>,
@@ -153,7 +158,9 @@ impl PiProcessHandle {
     /// `LocalLauncher`. Compatibility wrapper for callers that don't yet
     /// thread a `ProcessLauncher`; new callers should use `launch_with`.
     pub async fn spawn(cwd: impl AsRef<Path>, pi_bin: impl AsRef<Path>) -> Result<Self> {
-        Self::launch_with(&LocalLauncher, cwd, pi_bin).await
+        let local: Arc<dyn ProcessLauncher> = Arc::new(LocalLauncher);
+        let launcher = UserEnvironmentLauncher::new(local);
+        Self::launch_with(&launcher, cwd, pi_bin).await
     }
 
     /// Launch `pi-coding-agent --mode rpc` through `launcher`, bound to
@@ -199,6 +206,7 @@ impl PiProcessHandle {
         })?;
 
         let pid = child.id();
+        let launch_receipt = child.launch_receipt().cloned();
         let stdin: ChildStdin = child
             .take_stdin()
             .ok_or_else(|| anyhow!("pi child has no stdin pipe"))?;
@@ -228,6 +236,7 @@ impl PiProcessHandle {
             cwd,
             pi_bin,
             pid,
+            launch_receipt,
             writer_tx,
             events_tx,
             pending,
@@ -248,6 +257,10 @@ impl PiProcessHandle {
     /// OS process id (when the spawn surfaced one).
     pub fn pid(&self) -> Option<u32> {
         self.pid
+    }
+
+    pub fn launch_receipt(&self) -> Option<&HarnessLaunchReceipt> {
+        self.launch_receipt.as_ref()
     }
 
     /// Subscribe to the broadcast event channel. New subscribers see only
@@ -322,12 +335,12 @@ impl PiProcessHandle {
         if let Some(handle) = self._tasks.writer.lock().await.take() {
             handle.abort();
         }
+        if let Some(child) = self._tasks.child.lock().await.take() {
+            let _ =
+                shutdown_owned_child(child, Duration::from_secs(2), Duration::from_secs(2)).await;
+        }
         if let Some(handle) = self._tasks.stderr.lock().await.take() {
             handle.abort();
-        }
-        if let Some(mut child) = self._tasks.child.lock().await.take() {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
         }
         if let Some(handle) = self._tasks.reader.lock().await.take() {
             handle.abort();
@@ -539,6 +552,7 @@ impl PiProcessHandle {
             cwd,
             pi_bin: PathBuf::from("/dev/null"),
             pid: None,
+            launch_receipt: None,
             writer_tx,
             events_tx,
             pending: Arc::new(Mutex::new(HashMap::new())),

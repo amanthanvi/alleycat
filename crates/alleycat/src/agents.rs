@@ -7,11 +7,10 @@ use std::time::{Duration, Instant};
 
 use alleycat_acp_bridge::AcpBridge;
 use alleycat_amp_bridge::AmpBridge;
-use alleycat_bridge_core::codex_resolver::{newest_codex_candidates_first, program_candidates};
 use alleycat_bridge_core::session::{Session, SessionRegistry, SessionRegistryConfig};
 use alleycat_bridge_core::{
-    Bridge, LaunchEnvironment, LaunchEnvironmentResolver, LocalLauncher, ProcessLauncher,
-    UserEnvironmentLauncher,
+    Bridge, HarnessKind, LaunchEnvironment, LaunchEnvironmentResolver, LocalLauncher,
+    ProcessLauncher, UserEnvironmentLauncher, ordered_harness_candidates,
 };
 use alleycat_claude_bridge::ClaudeBridge;
 use alleycat_devin_bridge::DevinBridge;
@@ -113,6 +112,37 @@ impl CodexUnixEndpoint {
     }
 }
 
+/// A runtime attachment whose bridge/process transport is fully established.
+///
+/// Creating this value may resolve a lazy bridge, spawn a per-stream helper,
+/// open a socket, and install the session attachment. Waiting on it only drives
+/// the already-established, potentially long-lived stream.
+pub struct StartedAgentSession {
+    task: tokio::task::JoinHandle<anyhow::Result<()>>,
+    context: String,
+}
+
+impl StartedAgentSession {
+    fn new(task: tokio::task::JoinHandle<anyhow::Result<()>>, context: String) -> Self {
+        Self { task, context }
+    }
+
+    pub async fn wait(mut self) -> anyhow::Result<()> {
+        (&mut self.task)
+            .await
+            .context("agent session task terminated unexpectedly")?
+            .with_context(|| self.context.clone())
+    }
+}
+
+impl Drop for StartedAgentSession {
+    fn drop(&mut self) {
+        // A timed-out or otherwise cancelled setup must not detach a task that
+        // still owns a just-opened process/socket or session attachment.
+        self.task.abort();
+    }
+}
+
 #[derive(Clone)]
 pub struct AgentManager {
     config: Arc<ArcSwap<HostConfig>>,
@@ -140,6 +170,23 @@ pub struct AgentManager {
 }
 
 impl AgentManager {
+    /// Static, read-only projection for offline status. Availability is false
+    /// because probing through the daemon launch environment may mutate agent
+    /// state or spawn helper processes; a running daemon supplies live values.
+    pub fn offline_agent_summaries() -> Vec<AgentInfo> {
+        MANIFESTS
+            .iter()
+            .map(|manifest| AgentInfo {
+                name: manifest.name.to_owned(),
+                display_name: manifest.display_name.to_owned(),
+                wire: manifest.wire.clone(),
+                available: false,
+                presentation: Some(manifest.presentation()),
+                capabilities: Some(manifest.capabilities()),
+            })
+            .collect()
+    }
+
     pub async fn new(config: Arc<ArcSwap<HostConfig>>) -> anyhow::Result<Self> {
         let snapshot = config.load();
 
@@ -387,6 +434,23 @@ impl AgentManager {
         session: Arc<Session>,
         last_seen: Option<u64>,
     ) -> anyhow::Result<()> {
+        self.start_agent_with_session(agent, stream, session, last_seen)
+            .await?
+            .wait()
+            .await
+    }
+
+    /// Establish a runtime attachment without waiting for its long-lived
+    /// stream. Security-sensitive callers retain their authorization fence
+    /// through this method, then release it before awaiting
+    /// [`StartedAgentSession::wait`].
+    pub async fn start_agent_with_session(
+        &self,
+        agent: &str,
+        stream: IrohStream,
+        session: Arc<Session>,
+        last_seen: Option<u64>,
+    ) -> anyhow::Result<StartedAgentSession> {
         match agent {
             // Codex doesn't participate in the JSON-RPC replay scheme —
             // each iroh stream is a fresh websocket client to the shared
@@ -395,26 +459,26 @@ impl AgentManager {
             // registry's accounting stays uniform; its ring stays empty.
             "codex" => {
                 let _ = (session, last_seen);
-                self.serve_codex(stream).await
+                self.start_codex(stream).await
             }
             other => {
                 let kind =
                     agent_kind_from_str(other).ok_or_else(|| anyhow!("unknown agent `{other}`"))?;
-                self.serve_with_session(kind, stream, session, last_seen)
+                self.start_with_session(kind, stream, session, last_seen)
                     .await
             }
         }
     }
 
-    /// Polymorphic Bridge dispatch. Pi/Claude come straight from the eagerly-
-    /// built `bridges` map; opencode initializes lazily on first use.
-    pub async fn serve_with_session<S>(
+    /// Resolve a bridge, including lazy OpenCode initialization, and install
+    /// its session attachment before returning the long-lived stream handle.
+    async fn start_with_session<S>(
         &self,
         kind: AgentKind,
         stream: S,
         session: Arc<Session>,
         last_seen: Option<u64>,
-    ) -> anyhow::Result<()>
+    ) -> anyhow::Result<StartedAgentSession>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
@@ -431,9 +495,12 @@ impl AgentManager {
                     anyhow!("agent `{}` is not configured", agent_kind_str(other))
                 })?,
             };
-        alleycat_bridge_core::serve_stream_with_session(bridge, stream, session, last_seen)
-            .await
-            .with_context(|| format!("serving `{}` bridge stream", agent_kind_str(kind)))
+        let task =
+            alleycat_bridge_core::start_stream_with_session(bridge, stream, session, last_seen);
+        Ok(StartedAgentSession::new(
+            task,
+            format!("serving `{}` bridge stream", agent_kind_str(kind)),
+        ))
     }
 
     /// Stable static name for a wire-supplied agent string, used to key the
@@ -520,16 +587,19 @@ impl AgentManager {
         false
     }
 
-    async fn serve_codex(&self, iroh_stream: IrohStream) -> anyhow::Result<()> {
+    async fn start_codex(&self, iroh_stream: IrohStream) -> anyhow::Result<StartedAgentSession> {
         match self.codex_mode {
-            CodexMode::UnixDaemon => self.serve_codex_unix_proxy(iroh_stream).await,
-            CodexMode::UnixProxy => self.serve_codex_unix_proxy(iroh_stream).await,
-            CodexMode::Websocket => self.serve_codex_ws(iroh_stream).await,
-            CodexMode::Stdio => self.serve_codex_stdio(iroh_stream).await,
+            CodexMode::UnixDaemon => self.start_codex_unix_proxy(iroh_stream).await,
+            CodexMode::UnixProxy => self.start_codex_unix_proxy(iroh_stream).await,
+            CodexMode::Websocket => self.start_codex_ws(iroh_stream).await,
+            CodexMode::Stdio => self.start_codex_stdio(iroh_stream).await,
         }
     }
 
-    async fn serve_codex_unix_proxy(&self, mut iroh_stream: IrohStream) -> anyhow::Result<()> {
+    async fn start_codex_unix_proxy(
+        &self,
+        mut iroh_stream: IrohStream,
+    ) -> anyhow::Result<StartedAgentSession> {
         let endpoint = if self.codex_mode == CodexMode::UnixDaemon {
             self.ensure_codex_daemon_running().await?
         } else {
@@ -571,20 +641,35 @@ impl AgentManager {
             }
         });
 
-        let mut child_io = tokio::io::join(stdout, stdin);
-        let _ = tokio::io::copy_bidirectional(&mut iroh_stream, &mut child_io).await;
-        drop(child_io);
-        reap_codex_stream_child(child, "app-server proxy").await;
-        Ok(())
+        let task = tokio::spawn(async move {
+            let mut child_io = tokio::io::join(stdout, stdin);
+            let _ = tokio::io::copy_bidirectional(&mut iroh_stream, &mut child_io).await;
+            drop(child_io);
+            reap_codex_stream_child(child, "app-server proxy").await;
+            Ok(())
+        });
+        Ok(StartedAgentSession::new(
+            task,
+            "serving Codex app-server proxy stream".to_string(),
+        ))
     }
 
-    async fn serve_codex_ws(&self, mut iroh_stream: IrohStream) -> anyhow::Result<()> {
+    async fn start_codex_ws(
+        &self,
+        mut iroh_stream: IrohStream,
+    ) -> anyhow::Result<StartedAgentSession> {
         let (host, port) = self.ensure_codex_running().await?;
         let mut tcp = TcpStream::connect((host.as_str(), port))
             .await
             .with_context(|| format!("connecting to codex app-server at {host}:{port}"))?;
-        let _ = tokio::io::copy_bidirectional(&mut iroh_stream, &mut tcp).await;
-        Ok(())
+        let task = tokio::spawn(async move {
+            let _ = tokio::io::copy_bidirectional(&mut iroh_stream, &mut tcp).await;
+            Ok(())
+        });
+        Ok(StartedAgentSession::new(
+            task,
+            "serving Codex websocket stream".to_string(),
+        ))
     }
 
     /// Starts the upstream Codex app-server daemon idempotently, then uses the
@@ -678,7 +763,7 @@ impl AgentManager {
             }
         }
 
-        self.ensure_codex_unix_running_locked(endpoint, &env, &mut *guard)
+        self.ensure_codex_unix_running_locked(endpoint, &env, &mut guard)
             .await
     }
 
@@ -694,7 +779,7 @@ impl AgentManager {
             return Ok(endpoint);
         }
         let mut guard = self.codex_child.lock().await;
-        self.ensure_codex_unix_running_locked(endpoint, env, &mut *guard)
+        self.ensure_codex_unix_running_locked(endpoint, env, &mut guard)
             .await
     }
 
@@ -783,7 +868,10 @@ impl AgentManager {
     /// Per-stream stdio bridge for codex versions that don't support
     /// `--listen`. Each iroh stream gets its own `codex app-server` child;
     /// codex's on-disk session store handles resume across reconnects.
-    async fn serve_codex_stdio(&self, mut iroh_stream: IrohStream) -> anyhow::Result<()> {
+    async fn start_codex_stdio(
+        &self,
+        mut iroh_stream: IrohStream,
+    ) -> anyhow::Result<StartedAgentSession> {
         let bin = {
             let cfg = self.config.load();
             if !cfg.agents.codex.enabled {
@@ -815,11 +903,17 @@ impl AgentManager {
             }
         });
 
-        let mut child_io = tokio::io::join(stdout, stdin);
-        let _ = tokio::io::copy_bidirectional(&mut iroh_stream, &mut child_io).await;
-        drop(child_io);
-        reap_codex_stream_child(child, "app-server stdio").await;
-        Ok(())
+        let task = tokio::spawn(async move {
+            let mut child_io = tokio::io::join(stdout, stdin);
+            let _ = tokio::io::copy_bidirectional(&mut iroh_stream, &mut child_io).await;
+            drop(child_io);
+            reap_codex_stream_child(child, "app-server stdio").await;
+            Ok(())
+        });
+        Ok(StartedAgentSession::new(
+            task,
+            "serving Codex stdio stream".to_string(),
+        ))
     }
 
     /// Ensures *something* is listening on the configured codex websocket
@@ -1127,21 +1221,17 @@ fn codex_needs_windows_cmd_shell(bin: &Path) -> bool {
 /// report codex unavailable.
 async fn detect_codex(bin: &str, env: &LaunchEnvironment) -> CodexDetection {
     let fallback_bin = PathBuf::from(bin);
-    let candidates = {
-        let mut resolved = Vec::new();
-        if let Some(path) = env.find_on_path(bin) {
-            resolved.push(path);
-        }
-        resolved.extend(program_candidates(Path::new(bin)));
-        if resolved.is_empty() {
-            vec![fallback_bin.clone()]
-        } else {
-            resolved.sort();
-            resolved.dedup();
-            resolved
+    let candidates = match ordered_harness_candidates(HarnessKind::Codex, Some(Path::new(bin)), env)
+    {
+        Ok(candidates) => candidates
+            .into_iter()
+            .map(|candidate| candidate.path)
+            .collect(),
+        Err(error) => {
+            warn!(configured_bin = %bin, "codex executable resolution failed: {error}");
+            Vec::new()
         }
     };
-    let candidates = newest_codex_candidates_first(candidates).await;
 
     for candidate in candidates {
         let mut command = codex_command(&candidate);
@@ -1250,6 +1340,7 @@ async fn run_codex_app_server_daemon(
     let mut command = codex_command(bin);
     apply_launch_env_to_command(&mut command, env);
     command.arg("app-server").arg("daemon").arg(subcommand);
+    command.kill_on_drop(true);
     let output = tokio::time::timeout(Duration::from_secs(90), command.output())
         .await
         .with_context(|| {

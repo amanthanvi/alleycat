@@ -2,19 +2,32 @@ use anyhow::{Context, anyhow};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use zeroize::Zeroizing;
 
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
+pub const MAX_REMORA_LINK_V2_FRAME_BYTES: usize = 64 * 1024;
 
 pub async fn read_json_frame<T, R>(reader: &mut R) -> anyhow::Result<T>
 where
     T: DeserializeOwned,
     R: AsyncRead + Unpin,
 {
+    read_json_frame_bounded(reader, MAX_FRAME_BYTES).await
+}
+
+pub async fn read_json_frame_bounded<T, R>(
+    reader: &mut R,
+    max_frame_bytes: usize,
+) -> anyhow::Result<T>
+where
+    T: DeserializeOwned,
+    R: AsyncRead + Unpin,
+{
     let len = reader.read_u32().await.context("reading frame length")? as usize;
-    if len > MAX_FRAME_BYTES {
+    if len > max_frame_bytes {
         return Err(anyhow!("frame too large: {len} bytes"));
     }
-    let mut buf = vec![0u8; len];
+    let mut buf = Zeroizing::new(vec![0u8; len]);
     reader
         .read_exact(&mut buf)
         .await
@@ -27,8 +40,20 @@ where
     T: Serialize,
     W: AsyncWrite + Unpin,
 {
-    let buf = serde_json::to_vec(value).context("encoding JSON frame")?;
-    if buf.len() > MAX_FRAME_BYTES {
+    write_json_frame_bounded(writer, value, MAX_FRAME_BYTES).await
+}
+
+pub async fn write_json_frame_bounded<T, W>(
+    writer: &mut W,
+    value: &T,
+    max_frame_bytes: usize,
+) -> anyhow::Result<()>
+where
+    T: Serialize,
+    W: AsyncWrite + Unpin,
+{
+    let buf = Zeroizing::new(serde_json::to_vec(value).context("encoding JSON frame")?);
+    if buf.len() > max_frame_bytes {
         return Err(anyhow!("frame too large: {} bytes", buf.len()));
     }
     writer
@@ -74,6 +99,20 @@ mod tests {
         let err = read_json_frame::<TestFrame, _>(&mut server)
             .await
             .unwrap_err();
+        assert!(err.to_string().contains("frame too large"));
+    }
+
+    #[tokio::test]
+    async fn bounded_reader_uses_the_protocol_specific_limit() {
+        let (mut client, mut server) = duplex(16);
+        client
+            .write_u32((MAX_REMORA_LINK_V2_FRAME_BYTES + 1) as u32)
+            .await
+            .unwrap();
+        let err =
+            read_json_frame_bounded::<TestFrame, _>(&mut server, MAX_REMORA_LINK_V2_FRAME_BYTES)
+                .await
+                .unwrap_err();
         assert!(err.to_string().contains("frame too large"));
     }
 }

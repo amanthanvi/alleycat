@@ -1,0 +1,194 @@
+name: Remora Link CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remora-link-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ACTIONLINT_VERSION: 1.7.12
+  ACTIONLINT_LINUX_AMD64_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+  CODEX_SCHEMA_REV: 13595c36e218fcbd13df118eeadf00d4eb0e6d31
+  NODE_VERSION: 24.18.0
+  RUST_TOOLCHAIN: 1.97.0
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: remora-link-ci-quality
+          save-if: ${{ github.event_name == 'push' }}
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Fetch the locked dependency graph
+        run: cargo fetch --locked
+      - name: Lint the shipped Remora Link core
+        env:
+          BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA: "1"
+        run: >-
+          cargo clippy --locked --frozen
+          --package remora-link
+          --package alleycat
+          --package alleycat-bridge-core
+          --no-deps
+          -- -D warnings
+      - name: Install pinned actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --proto '=https' --tlsv1.2 --location --fail --show-error --silent \
+            --output "$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$ACTIONLINT_LINUX_AMD64_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+      - name: Lint GitHub Actions workflows
+        run: |
+          "$RUNNER_TEMP/actionlint" -color
+
+  workspace-tests:
+    name: Workspace tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: remora-link-ci-tests
+          save-if: ${{ github.event_name == 'push' }}
+      - name: Verify locked workspace resolution
+        run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
+      - name: Fetch the locked dependency graph
+        run: cargo fetch --locked
+      - name: Test the frozen full workspace without external schemas
+        env:
+          BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA: "1"
+        run: cargo test --locked --frozen --workspace --all-features
+      - name: Test the npm launcher
+        run: node --test npm/test/*.test.mjs
+      - name: Verify the npm package graph
+        run: node npm/scripts/verify-packages.mjs
+
+  codex-schema:
+    name: Codex schema conformance
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Check out the exact upstream Codex schemas
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: openai/codex
+          ref: ${{ env.CODEX_SCHEMA_REV }}
+          path: .upstream/codex
+          sparse-checkout: codex-rs/app-server-protocol/schema/json/v2
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: remora-link-ci-codex-schema-${{ env.CODEX_SCHEMA_REV }}
+          save-if: ${{ github.event_name == 'push' }}
+      - name: Verify the exact schema checkout
+        shell: bash
+        env:
+          BRIDGE_CONFORMANCE_CODEX_SCHEMA_DIR: ${{ github.workspace }}/.upstream/codex/codex-rs/app-server-protocol/schema/json/v2
+        run: |
+          set -euo pipefail
+          test "$(git -C .upstream/codex rev-parse HEAD)" = "$CODEX_SCHEMA_REV"
+          test -f "$BRIDGE_CONFORMANCE_CODEX_SCHEMA_DIR/WarningNotification.json"
+      - name: Fetch the locked dependency graph
+        run: cargo fetch --locked
+      - name: Test local protocol types against the pinned schemas
+        env:
+          BRIDGE_CONFORMANCE_CODEX_SCHEMA_DIR: ${{ github.workspace }}/.upstream/codex/codex-rs/app-server-protocol/schema/json/v2
+        run: >-
+          cargo test --locked --frozen
+          --package alleycat-bridge-conformance
+          --test pinned_schema
+
+  compile:
+    name: Compile (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            runner: ubuntu-24.04
+          - platform: macOS
+            runner: macos-15
+          - platform: Windows
+            runner: windows-2022
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: remora-link-ci-${{ matrix.platform }}
+          save-if: ${{ github.event_name == 'push' }}
+      - name: Fetch the locked dependency graph
+        run: cargo fetch --locked
+      - name: Compile every target without running external harnesses
+        env:
+          BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA: "1"
+        run: >-
+          cargo check --locked --frozen
+          --workspace --all-targets --all-features
+
+  required:
+    name: Required
+    if: ${{ always() }}
+    needs: [quality, workspace-tests, codex-schema, compile]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Confirm every required job passed
+        env:
+          CODEX_SCHEMA_RESULT: ${{ needs.codex-schema.result }}
+          COMPILE_RESULT: ${{ needs.compile.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          WORKSPACE_TEST_RESULT: ${{ needs.workspace-tests.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$QUALITY_RESULT" = success
+          test "$WORKSPACE_TEST_RESULT" = success
+          test "$CODEX_SCHEMA_RESULT" = success
+          test "$COMPILE_RESULT" = success

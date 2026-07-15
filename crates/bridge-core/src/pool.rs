@@ -182,6 +182,24 @@ impl<H: PoolMember + 'static> ProcessPool<H> {
         }
     }
 
+    /// Remove every tracked member from the pool, then shut each one down
+    /// outside the bookkeeping lock. Intended for the bridge's daemon
+    /// shutdown hook so active children are not orphaned across restarts.
+    pub async fn shutdown_all(&self) {
+        let entries = {
+            let mut inner = self.inner.lock().await;
+            inner.by_cwd.clear();
+            inner
+                .processes
+                .drain()
+                .map(|(_, entry)| entry.handle)
+                .collect::<Vec<_>>()
+        };
+        for handle in entries {
+            handle.shutdown().await;
+        }
+    }
+
     pub async fn loaded_thread_ids(&self) -> Vec<ThreadId> {
         self.inner.lock().await.processes.keys().cloned().collect()
     }
@@ -370,6 +388,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_all_drains_active_and_idle_members() {
+        let p = pool(4, Duration::from_secs(60));
+        let (_, first) = track(&p, "active", "/a").await;
+        let (_, second) = track(&p, "idle", "/b").await;
+        p.mark_active("active").await;
+
+        p.shutdown_all().await;
+
+        assert_eq!(first.load(Ordering::SeqCst), 1);
+        assert_eq!(second.load(Ordering::SeqCst), 1);
+        assert!(p.is_empty().await);
+        assert!(p.threads_for_cwd(Path::new("/a")).await.is_empty());
+    }
+
+    #[tokio::test]
     async fn duplicate_track_errors() {
         let p = pool(4, Duration::from_secs(60));
         track(&p, "t1", "/a").await;
@@ -384,8 +417,8 @@ mod tests {
     #[tokio::test]
     async fn reap_idle_drops_old_inactive_only() {
         let p = pool(8, Duration::from_millis(50));
-        track(&p, "young".into(), "/a").await;
-        track(&p, "old_active".into(), "/b").await;
+        track(&p, "young", "/a").await;
+        track(&p, "old_active", "/b").await;
         p.mark_active("old_active").await;
         // Backdate "old_active" and "old_inactive" by hand via insert-with-age.
         let (h, _) = FakeHandle::new();

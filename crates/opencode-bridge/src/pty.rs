@@ -197,9 +197,9 @@ async fn drive_pty_websocket(
     process: &PtyProcess,
     mut write_rx: mpsc::UnboundedReceiver<WriteCommand>,
 ) -> anyhow::Result<()> {
-    let url = client.pty_connect_url(&process.pty_id);
-    debug!(url, "pty connect");
-    let (ws, _) = tokio_tungstenite::connect_async(&url).await?;
+    let request = client.pty_connect_request(&process.pty_id)?;
+    debug!(pty_id = %process.pty_id, "pty connect");
+    let (ws, _) = tokio_tungstenite::connect_async(request).await?;
     let (mut sink, mut stream) = ws.split();
     loop {
         tokio::select! {

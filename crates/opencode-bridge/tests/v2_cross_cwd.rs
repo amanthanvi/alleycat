@@ -31,22 +31,21 @@ async fn two_threads_in_different_cwds_remain_separate() {
             }),
         );
         guard.route(
-            "GET /session?directory=%2Ftmp%2Fa",
-            json!([{
-                "id":"ses_a",
-                "directory":"/tmp/a",
-                "title":"V2-A",
-                "time":{"created":1_000,"updated":1_000}
-            }]),
-        );
-        guard.route(
-            "GET /session?directory=%2Ftmp%2Fb",
-            json!([{
-                "id":"ses_b",
-                "directory":"/tmp/b",
-                "title":"V2-B",
-                "time":{"created":1_001,"updated":1_001}
-            }]),
+            "GET /session?",
+            json!([
+                {
+                    "id":"ses_a",
+                    "directory":"/tmp/a",
+                    "title":"V2-A",
+                    "time":{"created":1_000,"updated":1_000}
+                },
+                {
+                    "id":"ses_b",
+                    "directory":"/tmp/b",
+                    "title":"V2-B",
+                    "time":{"created":1_001,"updated":1_001}
+                }
+            ]),
         );
     }
 
@@ -123,18 +122,17 @@ async fn two_threads_in_different_cwds_remain_separate() {
     assert_eq!(data_b[0]["id"].as_str(), Some(thread_b.as_str()));
     assert_eq!(data_b[0]["cwd"], "/tmp/b");
 
-    // Confirm the bridge actually filtered at the upstream level (not just
-    // post-filtered locally) by inspecting the captured request paths.
+    // Session creation is not yet directory-scoped upstream, so listing must
+    // remain unfiltered upstream and apply cwd against the stable local
+    // bindings. Otherwise a valid cross-cwd thread can disappear.
     let seen = fx.seen();
     assert!(
-        seen.iter()
-            .any(|line| line.contains("GET /session?directory=%2Ftmp%2Fa")),
-        "expected /tmp/a directory filter on upstream GET /session: {seen:?}"
+        seen.iter().any(|line| line.starts_with("GET /session?")),
+        "expected unfiltered upstream GET /session: {seen:?}"
     );
     assert!(
-        seen.iter()
-            .any(|line| line.contains("GET /session?directory=%2Ftmp%2Fb")),
-        "expected /tmp/b directory filter on upstream GET /session: {seen:?}"
+        !seen.iter().any(|line| line.contains("directory=")),
+        "cwd filter leaked upstream before directory-aware creation: {seen:?}"
     );
 
     // Drain any queued response bodies just to keep the mutex's `bodies` map

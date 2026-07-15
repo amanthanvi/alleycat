@@ -1,0 +1,15 @@
+{
+  "name": "@remora/link-darwin-x64",
+  "version": "0.1.0",
+  "description": "Remora Link native binary for macOS x64.",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amanthanvi/alleycat.git",
+    "directory": "npm/platforms/darwin-x64"
+  },
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "files": ["bin/remora-link", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public", "provenance": true }
+}

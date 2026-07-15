@@ -41,9 +41,10 @@ pub use process::{
 /// `acquire_*` signatures stay flat.
 #[derive(Debug, Clone)]
 pub struct PoolPolicy {
-    /// When true, every spawned claude gets `--dangerously-skip-permissions`
-    /// (matches the user's local `claude` shell alias; v1 default). When
-    /// false, claude is spawned with `--permission-prompt-tool stdio` and
+    /// When true, every spawned claude gets `--dangerously-skip-permissions`.
+    /// This is an explicit compatibility override and is never inferred or
+    /// enabled by default. When false, claude is spawned with
+    /// `--permission-prompt-tool stdio` and
     /// the bridge bridges every `can_use_tool` control_request to a codex
     /// `requestApproval` request on the connected client.
     pub bypass_permissions: bool,
@@ -52,9 +53,9 @@ pub struct PoolPolicy {
 impl Default for PoolPolicy {
     fn default() -> Self {
         Self {
-            // Default true preserves v1 behavior. Operators flip via
-            // `agents.claude.bypass_permissions = false` in host.toml.
-            bypass_permissions: true,
+            // Safe default: retain bridge-mediated human approval. Operators
+            // may explicitly opt into bypass mode, but it is never inferred.
+            bypass_permissions: false,
         }
     }
 }
@@ -230,6 +231,10 @@ impl ClaudePool {
         self.inner.release(thread_id).await
     }
 
+    pub async fn shutdown_all(&self) {
+        self.inner.shutdown_all().await
+    }
+
     /// All thread ids currently tracked by the pool.
     pub async fn loaded_thread_ids(&self) -> Vec<ThreadId> {
         self.inner.loaded_thread_ids().await
@@ -302,6 +307,11 @@ impl ClaudePool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_policy_requires_bridge_mediated_approval() {
+        assert!(!PoolPolicy::default().bypass_permissions);
+    }
 
     fn fake_claude_pool(max: usize, ttl: Duration) -> ClaudePool {
         // Use a path that doesn't exist; we never call spawn in these tests

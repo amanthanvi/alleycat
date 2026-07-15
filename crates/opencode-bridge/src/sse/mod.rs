@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use serde_json::Value;
-use tokio::sync::broadcast;
+use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{debug, warn};
@@ -22,7 +22,8 @@ const BACKOFF_MAX: Duration = Duration::from_secs(30);
 #[derive(Clone)]
 pub struct SseConsumer {
     tx: broadcast::Sender<Arc<Value>>,
-    _task: Arc<JoinHandle<()>>,
+    shutdown_tx: watch::Sender<bool>,
+    task: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl SseConsumer {
@@ -32,12 +33,17 @@ impl SseConsumer {
     pub fn spawn(client: OpencodeClient) -> Self {
         let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let tx_for_task = tx.clone();
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
         let task = tokio::spawn(async move {
-            run_consumer(client, tx_for_task).await;
+            tokio::select! {
+                _ = run_consumer(client, tx_for_task) => {}
+                _ = shutdown_rx.changed() => {}
+            }
         });
         Self {
             tx,
-            _task: Arc::new(task),
+            shutdown_tx,
+            task: Arc::new(Mutex::new(Some(task))),
         }
     }
 
@@ -50,6 +56,26 @@ impl SseConsumer {
     /// Number of currently active subscribers (primarily for tests).
     pub fn receiver_count(&self) -> usize {
         self.tx.receiver_count()
+    }
+
+    /// Receive the same shutdown signal used by connection event pumps.
+    pub fn shutdown_receiver(&self) -> watch::Receiver<bool> {
+        self.shutdown_tx.subscribe()
+    }
+
+    /// Stop the active request/reconnect loop and wait briefly for task exit.
+    pub async fn shutdown(&self) {
+        let _ = self.shutdown_tx.send(true);
+        let Some(mut task) = self.task.lock().await.take() else {
+            return;
+        };
+        if tokio::time::timeout(Duration::from_secs(2), &mut task)
+            .await
+            .is_err()
+        {
+            task.abort();
+            let _ = task.await;
+        }
     }
 }
 
@@ -235,6 +261,35 @@ mod tests {
             counter.load(Ordering::SeqCst) >= 2,
             "expected at least two /event connections, got {}",
             counter.load(Ordering::SeqCst)
+        );
+    }
+
+    #[tokio::test]
+    async fn shutdown_stops_reconnect_loop_and_signals_event_pumps() {
+        let (base_url, counter) =
+            start_fake_sse(vec![vec![r#"{"type":"server.connected","properties":{}}"#]]);
+        let client = OpencodeClient::new(base_url, String::new());
+        let consumer = SseConsumer::spawn(client);
+        let mut events = consumer.subscribe();
+        let mut shutdown = consumer.shutdown_receiver();
+
+        tokio::time::timeout(Duration::from_secs(2), events.recv())
+            .await
+            .expect("event timeout")
+            .expect("event");
+        consumer.shutdown().await;
+        tokio::time::timeout(Duration::from_secs(1), shutdown.changed())
+            .await
+            .expect("shutdown timeout")
+            .expect("shutdown sender");
+        assert!(*shutdown.borrow());
+
+        let connections_after_shutdown = counter.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            connections_after_shutdown,
+            "SSE consumer reconnected after shutdown"
         );
     }
 }

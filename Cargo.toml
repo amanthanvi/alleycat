@@ -14,6 +14,7 @@ members = [
     "crates/hermes-bridge",
     "crates/pi-bridge",
     "crates/opencode-bridge",
+    "crates/remora-link",
     "crates/shell-bridge",
 ]
 resolver = "3"
@@ -26,6 +27,11 @@ authors = ["The Alleycat Authors"]
 repository = "https://github.com/dnakov/alleycat"
 homepage = "https://github.com/dnakov/alleycat"
 readme = "README.md"
+
+[workspace.metadata.remora-link]
+upstream = "https://github.com/dnakov/alleycat"
+distribution = "npm"
+maintenance-policy = "crates/remora-link/MAINTENANCE.md"
 
 [workspace.dependencies]
 alleycat-acp-bridge = { path = "crates/acp-bridge", version = "0.1" }

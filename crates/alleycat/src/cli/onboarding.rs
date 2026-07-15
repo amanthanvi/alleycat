@@ -34,5 +34,14 @@ pub async fn run() -> anyhow::Result<()> {
     // so onboarding stays honest about runtime state.
     cli::ensure_current_daemon().await?;
 
-    cli::pair::run(cli::pair::PairArgs { qr: true }).await
+    cli::pair::run(cli::pair::PairArgs {
+        qr: true,
+        legacy: false,
+        runtime_ids: vec!["codex".to_string()],
+        allow_restart: false,
+        unattended: false,
+        i_understand_first_claimer_wins: false,
+        ttl_secs: None,
+    })
+    .await
 }

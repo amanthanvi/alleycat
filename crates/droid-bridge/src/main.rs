@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use alleycat_bridge_core::server::{ServerOptions, serve_stdio, serve_unix};
+use alleycat_bridge_core::server::serve_stdio;
+#[cfg(unix)]
+use alleycat_bridge_core::server::{ServerOptions, serve_unix};
 use alleycat_droid_bridge::DroidBridge;
 
 #[tokio::main]
@@ -20,14 +22,22 @@ async fn main() -> anyhow::Result<()> {
 
     let bridge = DroidBridge::builder().from_env().build().await?;
     if let Some(socket_path) = socket {
-        serve_unix(
-            bridge,
-            ServerOptions {
-                socket_path: socket_path.into(),
-                unlink_stale: true,
-            },
-        )
-        .await
+        #[cfg(unix)]
+        {
+            serve_unix(
+                bridge,
+                ServerOptions {
+                    socket_path: socket_path.into(),
+                    unlink_stale: true,
+                },
+            )
+            .await
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = bridge;
+            anyhow::bail!("Unix socket transport is not supported on Windows: {socket_path}");
+        }
     } else {
         serve_stdio(Arc::clone(&bridge)).await
     }

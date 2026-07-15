@@ -1,11 +1,9 @@
-# Find existing codex binaries on a Windows remote and emit "codex:<path>" for
-# the newest parseable version, or the first executable fallback if none report
-# a version.
+# Find an existing codex binary on a Windows remote and emit "codex:<path>".
+# Preserve command/PATH precedence, then check fixed trusted locations. Never
+# invoke candidates, package managers, or installer paths during detection.
 $ErrorActionPreference = 'SilentlyContinue'
 
 $firstPath = $null
-$bestPath = $null
-$bestVersion = $null
 $seen = @{}
 
 function Consider-CodexPath {
@@ -29,30 +27,9 @@ function Consider-CodexPath {
         $firstPath = $resolved
     }
 
-    $versionText = (& $resolved --version 2>$null) -join "`n"
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($versionText)) {
-        return
-    }
-    $match = [regex]::Match($versionText, '(\d+)\.(\d+)\.(\d+)')
-    if (-not $match.Success) {
-        return
-    }
-    try {
-        $version = [version]::new(
-            [int]$match.Groups[1].Value,
-            [int]$match.Groups[2].Value,
-            [int]$match.Groups[3].Value
-        )
-    } catch {
-        return
-    }
-    if ($null -eq $bestVersion -or $version.CompareTo($bestVersion) -gt 0) {
-        $bestVersion = $version
-        $bestPath = $resolved
-    }
 }
 
-Get-Command codex -All -ErrorAction SilentlyContinue | ForEach-Object {
+Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object {
     Consider-CodexPath $_.Source
 }
 
@@ -72,10 +49,6 @@ foreach ($candidate in $commonCandidates) {
     Consider-CodexPath $candidate
 }
 
-if ($null -ne $bestPath) {
-    Write-Output "codex:$bestPath"
-    exit 0
-}
 if ($null -ne $firstPath) {
     Write-Output "codex:$firstPath"
     exit 0

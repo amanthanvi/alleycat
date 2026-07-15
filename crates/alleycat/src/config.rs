@@ -150,12 +150,9 @@ impl Default for OpencodeAgentConfig {
 pub struct ClaudeAgentConfig {
     pub enabled: bool,
     pub bin: String,
-    /// When true (default), spawn `claude` with `--dangerously-skip-permissions`
-    /// (matches the user's local `claude` shell alias). When false, spawn with
-    /// `--permission-prompt-tool stdio` and bridge each `can_use_tool`
-    /// inbound control_request to a codex `requestApproval` server→client
-    /// request — the connected phone client gets to approve/deny each tool
-    /// call.
+    /// When true, spawn `claude` with `--dangerously-skip-permissions`.
+    /// The safe default is false: bridge each `can_use_tool` inbound control
+    /// request to a client approval instead of silently bypassing policy.
     pub bypass_permissions: bool,
 }
 
@@ -164,7 +161,7 @@ impl Default for ClaudeAgentConfig {
         Self {
             enabled: true,
             bin: "claude".to_string(),
-            bypass_permissions: true,
+            bypass_permissions: false,
         }
     }
 }
@@ -302,6 +299,16 @@ pub async fn load_or_init() -> anyhow::Result<HostConfig> {
     }
 }
 
+/// Load an already-initialized host config without creating directories or
+/// default state. Used by read-only inspection commands.
+pub async fn load_existing() -> anyhow::Result<HostConfig> {
+    let path = paths::existing_host_config_file()?;
+    let raw = fs::read_to_string(&path)
+        .await
+        .with_context(|| format!("reading initialized host config {}", path.display()))?;
+    toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))
+}
+
 pub async fn save(config: &HostConfig) -> anyhow::Result<()> {
     let path = paths::host_config_file()?;
     let data = toml::to_string_pretty(config).context("serializing host config")?;
@@ -391,6 +398,7 @@ mod tests {
         assert!(config.agents.pi.enabled);
         assert!(config.agents.opencode.enabled);
         assert!(config.agents.claude.enabled);
+        assert!(!config.agents.claude.bypass_permissions);
         assert!(config.agents.droid.enabled);
         assert!(config.agents.grok.enabled);
         assert!(config.agents.grok.no_leader);

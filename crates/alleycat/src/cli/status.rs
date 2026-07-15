@@ -1,6 +1,3 @@
-use std::sync::Arc;
-
-use arc_swap::ArcSwap;
 use clap::Args;
 
 use crate::agents::AgentManager;
@@ -18,12 +15,7 @@ pub struct StatusArgs {
 }
 
 pub async fn run(args: StatusArgs) -> anyhow::Result<()> {
-    let info = if ipc::is_daemon_running().await {
-        let resp = cli::send(Request::Status).await?;
-        cli::decode_data::<StatusInfo>(resp)?
-    } else {
-        offline_status().await?
-    };
+    let info = status_info().await?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&info)?);
@@ -61,24 +53,56 @@ pub async fn run(args: StatusArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn status_info() -> anyhow::Result<StatusInfo> {
+    if ipc::is_daemon_running().await {
+        let resp = cli::send(Request::Status).await?;
+        cli::decode_data::<StatusInfo>(resp)
+    } else {
+        offline_status().await
+    }
+}
+
 /// Status when the daemon isn't running. Pid is 0 and uptime is 0 so the
 /// human renderer can call out the offline state.
 async fn offline_status() -> anyhow::Result<StatusInfo> {
-    let cfg = crate::config::load_or_init().await?;
-    let secret_key = crate::state::load_or_create_secret_key().await?;
-    let agents_cfg = Arc::new(ArcSwap::from_pointee(cfg.clone()));
-    let agents = AgentManager::new(Arc::clone(&agents_cfg)).await?;
-    let agent_list: Vec<AgentInfo> = agents.list_agents().await;
+    let cfg = crate::config::load_existing().await.map_err(|error| {
+        anyhow::anyhow!(
+            "{} is not initialized; start the daemon before requesting status: {error:#}",
+            crate::binary_name()
+        )
+    })?;
+    let secret_key = crate::state::load_existing_secret_key().await?;
+    let agent_list: Vec<AgentInfo> = AgentManager::offline_agent_summaries();
     Ok(StatusInfo {
         pid: 0,
         node_id: secret_key.public().to_string(),
         token_short: token_fingerprint(&cfg.token),
         relay: cfg.relay.clone(),
-        config_path: paths::host_config_file()
+        config_path: paths::existing_host_config_file()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| "<unknown>".to_string()),
         uptime_secs: 0,
         agents: agent_list,
         version: Some(crate::binary_version().to_string()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TempHome;
+
+    #[tokio::test]
+    async fn status_entry_path_fails_without_creating_host_or_control_state() {
+        let mut home = TempHome::new();
+        home.override_env(&[("XDG_RUNTIME_DIR", "")]);
+
+        let error = status_info().await.unwrap_err().to_string();
+        assert!(error.contains("not initialized"));
+        assert!(
+            std::fs::read_dir(home.path()).unwrap().next().is_none(),
+            "read-only status created files under {}",
+            home.path().display()
+        );
+    }
 }

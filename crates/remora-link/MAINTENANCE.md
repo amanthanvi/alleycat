@@ -43,7 +43,12 @@ workflow can open the review PR. Keep Actions-created PRs subject to required
 human review and explicitly approve any repository-policy-gated workflow runs;
 the sync workflow runs the locked Rust workspace and npm launcher tests at the
 exact merge commit in a separate read-only job, then records that result on the
-review PR. Unreviewed upstream code never executes in a write-capable job.
+review PR. That workspace gate explicitly sets
+`BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA=1`; a second read-only job checks the
+conformance crate against the exact `openai/codex` schema revision
+`13595c36e218fcbd13df118eeadf00d4eb0e6d31`. This makes a missing external
+checkout explicit without silently losing schema drift coverage. Unreviewed
+upstream code never executes in a write-capable job.
 
 ## Relay provider seam
 

@@ -45,9 +45,26 @@ contain or consume an npm write token.
 
    ```sh
    cargo test --locked -p remora-link
+   BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA=1 cargo test --locked --workspace
    node --test npm/test/*.test.mjs
    node npm/scripts/verify-packages.mjs
    ```
+
+   The workspace command is deliberately the no-external-schema gate. Run the
+   schema-present gate separately against the exact Codex revision pinned by
+   the release workflow:
+
+   ```sh
+   CODEX_SCHEMA_REV=13595c36e218fcbd13df118eeadf00d4eb0e6d31
+   : "${CODEX_CHECKOUT:?set CODEX_CHECKOUT to an exact openai/codex checkout}"
+   test "$(git -C "$CODEX_CHECKOUT" rev-parse HEAD)" = "$CODEX_SCHEMA_REV"
+   BRIDGE_CONFORMANCE_CODEX_SCHEMA_DIR="$CODEX_CHECKOUT/codex-rs/app-server-protocol/schema/json/v2" \
+     cargo test --locked --package alleycat-bridge-conformance
+   ```
+
+   `CODEX_CHECKOUT` must be an exact checkout of `openai/codex`, not a moving
+   branch. Bump the workflow pin and this command together after reviewing
+   upstream schema changes.
 
 3. Merge through normal review and green locked builds.
 4. Create the protected tag `remora-link-vX.Y.Z` at the reviewed commit.

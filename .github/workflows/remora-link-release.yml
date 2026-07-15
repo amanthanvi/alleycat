@@ -9,6 +9,9 @@ concurrency:
   group: remora-link-release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  CODEX_SCHEMA_REV: 13595c36e218fcbd13df118eeadf00d4eb0e6d31
+
 jobs:
   validate:
     runs-on: ubuntu-24.04
@@ -41,15 +44,48 @@ jobs:
         run: node npm/scripts/verify-packages.mjs
       - name: Verify locked workspace resolution
         run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
-      - name: Test locked Rust workspace
+      - name: Test locked Rust workspace without external schemas
+        env:
+          BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA: "1"
         run: |
           cargo fetch --locked
           cargo test --locked --frozen --workspace
       - name: Test npm launcher
         run: node --test npm/test/*.test.mjs
 
+  validate-codex-schema:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Check out the exact upstream Codex schemas
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          repository: openai/codex
+          ref: ${{ env.CODEX_SCHEMA_REV }}
+          path: .upstream/codex
+          sparse-checkout: codex-rs/app-server-protocol/schema/json/v2
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: remora-link-codex-schema-${{ env.CODEX_SCHEMA_REV }}
+      - name: Test bridge conformance against the pinned schemas
+        env:
+          BRIDGE_CONFORMANCE_CODEX_SCHEMA_DIR: ${{ github.workspace }}/.upstream/codex/codex-rs/app-server-protocol/schema/json/v2
+        run: |
+          test "$(git -C .upstream/codex rev-parse HEAD)" = "$CODEX_SCHEMA_REV"
+          test -d "$BRIDGE_CONFORMANCE_CODEX_SCHEMA_DIR"
+          cargo fetch --locked
+          cargo test --locked --frozen --package alleycat-bridge-conformance
+
   build:
-    needs: validate
+    needs: [validate, validate-codex-schema]
     strategy:
       fail-fast: false
       matrix:

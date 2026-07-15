@@ -50,6 +50,21 @@ conformance crate against the exact `openai/codex` schema revision
 checkout explicit without silently losing schema drift coverage. Unreviewed
 upstream code never executes in a write-capable job.
 
+## Continuous integration boundary
+
+The `Remora Link CI` workflow gates pull requests and default-branch pushes on
+the locked, frozen Rust workspace, npm launcher tests, package-graph checks,
+formatting, pinned Codex schema conformance, and native Linux, macOS, and
+Windows compilation. Live external harness tests stay opt-in; CI compiles
+their targets but does not launch user-installed agents.
+
+Clippy denies warnings for the shipped Remora Link binary, the Alleycat host
+facade, and `alleycat-bridge-core`. It uses `--no-deps` because the inherited
+bridge crates do not yet have a workspace-wide clean Clippy baseline. This is
+not a test exemption: every bridge package remains covered by locked, frozen
+workspace tests and all-target compile jobs. Broaden the Clippy gate to the
+full workspace once the upstream bridge warning backlog is reconciled.
+
 ## Relay provider seam
 
 The transport-facing provider contract is intentionally narrower than the

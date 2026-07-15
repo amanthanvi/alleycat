@@ -1,5 +1,6 @@
 //! Translation between Codex protocol and ACP protocol.
 
+use alleycat_codex_proto::lifecycle::InitializeResponse;
 use serde_json::Value;
 
 /// Translate Codex InitializeParams to ACP InitializeRequest.
@@ -27,7 +28,9 @@ pub fn codex_to_acp_initialize(codex_params: &Value) -> Result<Value, anyhow::Er
     Ok(acp_request)
 }
 
-/// Translate ACP InitializeResponse to Codex InitializeResult.
+/// Translate ACP InitializeResponse to the current Codex initialize shape.
+/// ACP's structured agent identity is retained in `userAgent`; Codex's
+/// current response schema has no `serverInfo` field.
 pub fn acp_to_codex_initialize_result(acp_response: &Value) -> Result<Value, anyhow::Error> {
     let agent_name = acp_response
         .get("agentInfo")
@@ -42,13 +45,15 @@ pub fn acp_to_codex_initialize_result(acp_response: &Value) -> Result<Value, any
     let codex_home = std::env::var("HOME")
         .map(|home| format!("{home}/.alleycat-acp-bridge"))
         .unwrap_or_else(|_| "/tmp/alleycat-acp-bridge".to_string());
-    let codex_result = serde_json::json!({
-        "userAgent": format!("alleycat-acp-bridge/{} ({agent_name} {agent_version})", env!("CARGO_PKG_VERSION")),
-        "codexHome": codex_home,
-        "platformFamily": std::env::consts::FAMILY,
-        "platformOs": std::env::consts::OS,
-    });
-    Ok(codex_result)
+    Ok(serde_json::to_value(InitializeResponse {
+        user_agent: format!(
+            "alleycat-acp-bridge/{} ({agent_name} {agent_version})",
+            env!("CARGO_PKG_VERSION")
+        ),
+        codex_home,
+        platform_family: std::env::consts::FAMILY.to_string(),
+        platform_os: std::env::consts::OS.to_string(),
+    })?)
 }
 
 /// Translate Codex ThreadStartParams to ACP NewSessionRequest.

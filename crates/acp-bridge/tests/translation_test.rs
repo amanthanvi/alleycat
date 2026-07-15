@@ -43,8 +43,25 @@ fn test_acp_to_codex_initialize_result() {
     assert!(codex_result.is_ok());
 
     let codex_result = codex_result.unwrap();
-    assert_eq!(codex_result["serverInfo"]["name"], "TestAgent");
-    assert_eq!(codex_result["serverInfo"]["version"], "2.0.0");
+    let user_agent = codex_result["userAgent"].as_str().unwrap();
+    assert!(user_agent.contains("TestAgent"));
+    assert!(user_agent.contains("2.0.0"));
+    assert!(
+        codex_result["codexHome"]
+            .as_str()
+            .is_some_and(|v| !v.is_empty())
+    );
+    assert!(
+        codex_result["platformFamily"]
+            .as_str()
+            .is_some_and(|v| !v.is_empty())
+    );
+    assert!(
+        codex_result["platformOs"]
+            .as_str()
+            .is_some_and(|v| !v.is_empty())
+    );
+    assert!(codex_result.get("serverInfo").is_none());
 }
 
 #[test]

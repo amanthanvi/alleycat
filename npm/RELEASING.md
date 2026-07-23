@@ -26,7 +26,7 @@ bytes under an already-used version.
 For every package, configure npm's GitHub Actions trusted publisher with:
 
 - owner: `amanthanvi`
-- repository: `remora`
+- repository: `remora-link`
 - workflow: `remora-link-release.yml`
 - environment: `npm`
 - allowed action: `npm publish`

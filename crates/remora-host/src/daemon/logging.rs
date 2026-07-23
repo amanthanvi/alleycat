@@ -1,6 +1,6 @@
 //! Daemon logging setup. Writes to a daily-rotated file under
 //! [`crate::paths::log_dir`] and, when stderr is a TTY, additionally mirrors
-//! to stderr so `remora serve` is debuggable from a terminal.
+//! to stderr so `remora-link serve` is debuggable from a terminal.
 //!
 //! The returned [`tracing_appender::non_blocking::WorkerGuard`] must be kept
 //! alive for the daemon's lifetime — dropping it stops the background writer

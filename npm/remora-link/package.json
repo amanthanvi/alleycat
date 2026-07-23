@@ -18,7 +18,8 @@
     "bin/remora-link.js",
     "lib/launcher.mjs",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE.md"
   ],
   "engines": {
     "node": ">=22"

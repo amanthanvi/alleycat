@@ -14,7 +14,8 @@
     "bin/remora-link.exe",
     "bin/remora-link-startup.exe",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE.md"
   ],
   "publishConfig": { "access": "public", "provenance": true }
 }

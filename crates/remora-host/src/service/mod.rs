@@ -44,7 +44,8 @@ pub fn install() -> anyhow::Result<()> {
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         Err(anyhow::anyhow!(
-            "remora install is not supported on this platform"
+            "{} install is not supported on this platform",
+            crate::binary_name()
         ))
     }
 }

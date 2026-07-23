@@ -28,7 +28,8 @@ pub(super) fn install() -> anyhow::Result<()> {
         eprintln!(
             "Hint: to start the daemon at boot rather than at login, run:\n  \
              loginctl enable-linger $USER\n\
-             (this needs sudo and is intentionally not run by `remora install`)"
+             (this needs sudo and is intentionally not run by `{} install`)",
+            crate::binary_name()
         );
         return Ok(());
     }
@@ -45,7 +46,8 @@ pub(super) fn install() -> anyhow::Result<()> {
 
     Err(anyhow!(
         "Linux init not supported (no reachable `systemd --user` session, no XDG graphical session). \
-         Run `remora serve` manually under your init."
+         Run `{} serve` manually under your init.",
+        crate::binary_name()
     ))
 }
 
@@ -123,7 +125,7 @@ fn render_systemd_unit(
     // systemd `--user` units inherit `DefaultEnvironment=` from `manager.conf`,
     // not the user's interactive shell. Propagating PATH preserves the
     // expectation that `which("opencode")` / `which("pi")` resolves the
-    // same way it does in the shell that ran `remora install`. SHELL is safe
+    // same way it does in the shell that ran `remora-link install`. SHELL is safe
     // to persist and lets the launch-environment resolver choose fish, zsh,
     // bash, or sh the same way the user does.
     let mut env_line = String::new();

@@ -10,6 +10,6 @@
   },
   "os": ["darwin"],
   "cpu": ["arm64"],
-  "files": ["bin/remora-link", "README.md", "LICENSE"],
+  "files": ["bin/remora-link", "README.md", "LICENSE", "NOTICE.md"],
   "publishConfig": { "access": "public", "provenance": true }
 }

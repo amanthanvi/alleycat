@@ -18,6 +18,7 @@ const platforms = (await readdir(platformRoot, { withFileTypes: true }))
 
 await mkdir(outputDirectory, { recursive: true });
 await copyFile(path.join(repoRoot, "LICENSE"), path.join(npmRoot, "remora-link", "LICENSE"));
+await copyFile(path.join(repoRoot, "NOTICE.md"), path.join(npmRoot, "remora-link", "NOTICE.md"));
 
 const checksumLines = [];
 for (const platform of platforms) {
@@ -25,6 +26,7 @@ for (const platform of platforms) {
   const packageRoot = path.join(platformRoot, platform);
   await cp(path.join(artifactRoot, "bin"), path.join(packageRoot, "bin"), { recursive: true, force: true });
   await copyFile(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
+  await copyFile(path.join(repoRoot, "NOTICE.md"), path.join(packageRoot, "NOTICE.md"));
   await copyFile(
     path.join(artifactRoot, `${platform}.spdx.json`),
     path.join(outputDirectory, `${platform}.spdx.json`),

@@ -41,15 +41,12 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Fetch the locked dependency graph
         run: cargo fetch --locked
-      - name: Lint the shipped Remora Link core
+      - name: Lint the full Remora Link workspace
         env:
           BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA: "1"
         run: >-
           cargo clippy --locked --frozen
-          --package remora-link
-          --package remora-host
-          --package remora-bridge-core
-          --no-deps
+          --workspace --all-targets --all-features
           -- -D warnings
       - name: Install pinned actionlint
         shell: bash

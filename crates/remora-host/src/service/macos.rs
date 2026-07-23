@@ -158,7 +158,7 @@ fn render_plist(
     // which makes `which::which` fail for tools installed under ~/.bun/bin,
     // ~/.opencode/bin, /opt/homebrew/bin, etc. Inheriting the install-time
     // PATH preserves the user's expectation that "opencode" / "pi" resolve
-    // the same way they do in the shell that ran `remora install`. SHELL is
+    // the same way they do in the shell that ran `remora-link install`. SHELL is
     // safe to persist and lets the launch-environment resolver choose fish,
     // zsh, bash, or sh the same way the user does.
     let mut env_entries = String::new();

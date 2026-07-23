@@ -1,4 +1,4 @@
-//! Long-running daemon process for `remora serve`.
+//! Long-running daemon process for `remora-link serve`.
 //!
 //! Owns the single-instance file lock, the persistent iroh secret + token,
 //! the iroh endpoint serving agent streams, and the IPC control listener
@@ -31,7 +31,7 @@ use self::control::{
     PairingResultV2, Request, Response, StatusInfo,
 };
 
-/// Entry point for `remora serve`. Initializes file logging, acquires the
+/// Entry point for `remora-link serve`. Initializes file logging, acquires the
 /// single-instance lock, binds the iroh endpoint + control IPC, and runs
 /// until SIGTERM / SIGINT / control `Stop`.
 pub async fn run() -> anyhow::Result<()> {

@@ -21,8 +21,9 @@ The production command is always `remora-link`.
 | bun | `bunx remora-link` |
 | source | `cargo install --locked --path crates/remora-link` |
 
-The npm package installs the matching signed platform binary. Source builds
-produce the same command and filesystem identity.
+The npm package installs the matching checksummed, SBOM-backed, and
+GitHub-attested platform binary. Source builds produce the same command and
+filesystem identity.
 
 ## Pair a device
 

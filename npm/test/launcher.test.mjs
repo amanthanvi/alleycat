@@ -49,11 +49,8 @@ test("stabilizes daemon-capable and unknown commands while exempting proven tran
     ["upgrade"],
     ["restart"],
     ["pair"],
-    ["rotate"],
     ["devices", "list"],
     ["devices", "revoke", "device-1"],
-    ["probe"],
-    ["probe", "--node-id", "remote-node"],
     ["future-command"],
   ]) {
     assert.equal(commandNeedsStableInstall(args), true, `${args[0] ?? "onboarding"} must stabilize`);

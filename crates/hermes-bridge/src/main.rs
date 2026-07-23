@@ -3,8 +3,8 @@
 use std::{path::PathBuf, sync::Arc};
 
 #[cfg(unix)]
-use alleycat_bridge_core::ServerOptions;
-use alleycat_hermes_bridge::{HermesBridge, HermesBridgeConfig, HermesMode};
+use remora_bridge_core::ServerOptions;
+use remora_hermes_bridge::{HermesBridge, HermesBridgeConfig, HermesMode};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
         Some(path) => {
             #[cfg(unix)]
             {
-                alleycat_bridge_core::serve_unix(
+                remora_bridge_core::serve_unix(
                     bridge,
                     ServerOptions {
                         socket_path: path,
@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::bail!("Unix socket transport is not supported on this platform")
             }
         }
-        None => alleycat_bridge_core::serve_stdio(bridge).await,
+        None => remora_bridge_core::serve_stdio(bridge).await,
     }
 }
 
@@ -73,5 +73,5 @@ fn socket_arg() -> Option<PathBuf> {
             return args.next().map(PathBuf::from);
         }
     }
-    std::env::var_os("ALLEYCAT_BRIDGE_SOCKET").map(PathBuf::from)
+    std::env::var_os("REMORA_BRIDGE_SOCKET").map(PathBuf::from)
 }

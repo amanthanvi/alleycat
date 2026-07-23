@@ -9,10 +9,8 @@ mod support;
 
 use std::time::Duration;
 
-use alleycat_pi_bridge::pool::pi_protocol::{
-    BareCmd, NewSessionCmd, PiEvent, PromptCmd, RpcCommand,
-};
-use alleycat_pi_bridge::pool::process::PiProcessHandle;
+use remora_pi_bridge::pool::pi_protocol::{BareCmd, NewSessionCmd, PiEvent, PromptCmd, RpcCommand};
+use remora_pi_bridge::pool::process::PiProcessHandle;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::timeout;

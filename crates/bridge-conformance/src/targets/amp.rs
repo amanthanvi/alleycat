@@ -1,4 +1,4 @@
-//! Amp target — spawn `alleycat-amp-bridge` in stdio mode with
+//! Amp target — spawn `remora-amp-bridge` in stdio mode with
 //! `AMP_BRIDGE_AMP_BIN` pointed at a real Amp CLI.
 
 use std::process::Stdio;

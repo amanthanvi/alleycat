@@ -1,4 +1,4 @@
-//! Pi target — spawn `alleycat-pi-bridge` in stdio mode with
+//! Pi target — spawn `remora-pi-bridge` in stdio mode with
 //! `PI_BRIDGE_PI_BIN` pointed at a real `pi-coding-agent`.
 
 use std::process::Stdio;

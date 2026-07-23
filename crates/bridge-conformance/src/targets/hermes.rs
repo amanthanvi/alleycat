@@ -1,4 +1,4 @@
-//! Hermes target — spawn `alleycat-hermes-bridge` in stdio mode with
+//! Hermes target — spawn `remora-hermes-bridge` in stdio mode with
 //! `HERMES_API_BASE` pointed at a running Hermes Agent gateway (or in
 //! CLI mode via `HERMES_BRIDGE_BIN`).
 

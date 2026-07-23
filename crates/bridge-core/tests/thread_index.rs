@@ -2,14 +2,14 @@
 //! `serde(flatten)`-friendly struct) so the test suite mirrors how
 //! pi-bridge/claude-bridge will plug in their own metadata types in A2/A3.
 
-use alleycat_bridge_core::thread_index::open_in_dir;
-use alleycat_bridge_core::{
-    Hydrator, IndexEntry, ListFilter, ListPage, ListSort, ThreadIndex, ThreadIndexHandle,
-};
-use alleycat_codex_proto::{SortDirection, ThreadSortKey, ThreadSourceKind};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::TimeZone;
+use remora_bridge_core::thread_index::open_in_dir;
+use remora_bridge_core::{
+    Hydrator, IndexEntry, ListFilter, ListPage, ListSort, ThreadIndex, ThreadIndexHandle,
+};
+use remora_codex_proto::{SortDirection, ThreadSortKey, ThreadSourceKind};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;

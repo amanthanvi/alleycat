@@ -8,13 +8,13 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use alleycat_bridge_core::Hydrator;
-pub use alleycat_bridge_core::{
+use remora_bridge_core::Hydrator;
+pub use remora_bridge_core::{
     IndexEntry as CoreIndexEntry, ListFilter, ListPage, ListSort, ThreadIndex as CoreThreadIndex,
 };
-use alleycat_codex_proto::{SessionSource, Thread, ThreadSourceKind, ThreadStatus};
+use remora_codex_proto::{SessionSource, Thread, ThreadSourceKind, ThreadStatus};
 
-pub const CLI_VERSION: &str = concat!("alleycat-amp-bridge/", env!("CARGO_PKG_VERSION"));
+pub const CLI_VERSION: &str = concat!("remora-amp-bridge/", env!("CARGO_PKG_VERSION"));
 pub const INDEX_FILE_NAME: &str = "amp-threads.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,7 +58,7 @@ pub fn entry_to_thread(entry: &IndexEntry) -> Thread {
         thread_source: None,
         agent_nickname: None,
         agent_role: None,
-        git_info: alleycat_bridge_core::git_info_for_cwd(&entry.cwd),
+        git_info: remora_bridge_core::git_info_for_cwd(&entry.cwd),
         name: entry.name.clone(),
         turns: Vec::new(),
     }
@@ -178,15 +178,15 @@ pub fn amp_threads_dir() -> Option<PathBuf> {
 }
 
 fn expand_tilde(input: &str) -> PathBuf {
-    if input == "~" {
-        if let Some(home) = directories::UserDirs::new() {
-            return home.home_dir().to_path_buf();
-        }
+    if input == "~"
+        && let Some(home) = directories::UserDirs::new()
+    {
+        return home.home_dir().to_path_buf();
     }
-    if let Some(rest) = input.strip_prefix("~/") {
-        if let Some(home) = directories::UserDirs::new() {
-            return home.home_dir().join(rest);
-        }
+    if let Some(rest) = input.strip_prefix("~/")
+        && let Some(home) = directories::UserDirs::new()
+    {
+        return home.home_dir().join(rest);
     }
     PathBuf::from(input)
 }
@@ -379,8 +379,8 @@ mod tests {
             .insert(IndexEntry {
                 thread_id: "app-thread".to_string(),
                 cwd: "/tmp/project".to_string(),
-                name: Some("Existing Alleycat title".to_string()),
-                preview: "Existing Alleycat preview".to_string(),
+                name: Some("Existing Remora title".to_string()),
+                preview: "Existing Remora preview".to_string(),
                 created_at: 1,
                 updated_at: 2,
                 archived: false,
@@ -410,10 +410,7 @@ mod tests {
             .unwrap();
         assert_eq!(page.data.len(), 1);
         assert_eq!(page.data[0].thread_id, "app-thread");
-        assert_eq!(
-            page.data[0].name.as_deref(),
-            Some("Existing Alleycat title")
-        );
+        assert_eq!(page.data[0].name.as_deref(), Some("Existing Remora title"));
         assert_eq!(
             page.data[0].metadata.amp_thread_id.as_deref(),
             Some("native-amp-thread")

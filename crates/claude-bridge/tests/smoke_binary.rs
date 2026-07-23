@@ -1,4 +1,4 @@
-//! Subprocess smoke: spawn the `alleycat-claude-bridge` binary in stdio
+//! Subprocess smoke: spawn the `remora-claude-bridge` binary in stdio
 //! mode with `CLAUDE_BRIDGE_CLAUDE_BIN` pointed at `fake-claude`, then
 //! drive it over stdin/stdout with hand-rolled JSON-RPC frames.
 //!
@@ -18,7 +18,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use support::{alleycat_claude_bridge_path, fake_claude_path};
+use support::{fake_claude_path, remora_claude_bridge_path};
 
 const STEP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -28,7 +28,7 @@ async fn binary_stdio_initialize_thread_start_turn_start() {
     let codex_home = TempDir::new().unwrap();
     let claude_projects = TempDir::new().unwrap();
 
-    let mut child = Command::new(alleycat_claude_bridge_path())
+    let mut child = Command::new(remora_claude_bridge_path())
         // Force the bridge to spawn `fake-claude` instead of real claude.
         .env("CLAUDE_BRIDGE_CLAUDE_BIN", fake_claude_path())
         // Isolate the on-disk thread index AND the projects-scan source
@@ -40,7 +40,7 @@ async fn binary_stdio_initialize_thread_start_turn_start() {
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .expect("spawn alleycat-claude-bridge");
+        .expect("spawn remora-claude-bridge");
 
     let mut stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();

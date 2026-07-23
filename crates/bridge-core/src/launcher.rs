@@ -4,7 +4,7 @@
 //! in the case of pi/claude, also spawn shell-tool subprocesses via the
 //! `command_exec` codex protocol. Today every spawn site builds a
 //! `tokio::process::Command` directly. To let downstream consumers (the daemon,
-//! Litter) substitute a remote launcher (e.g. SSH) without touching bridge
+//! Remora) substitute a remote launcher (e.g. SSH) without touching bridge
 //! internals, every spawn is routed through the [`ProcessLauncher`] trait
 //! defined here.
 //!

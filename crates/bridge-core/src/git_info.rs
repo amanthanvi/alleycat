@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use alleycat_codex_proto::GitInfo;
+use remora_codex_proto::GitInfo;
 
 /// Best-effort Git metadata for a thread cwd.
 ///

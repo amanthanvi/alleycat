@@ -12,7 +12,7 @@ fn test_codex_to_acp_initialize() {
         },
     });
 
-    let acp_request = alleycat_acp_bridge::translate::codex_to_acp_initialize(&codex_params);
+    let acp_request = remora_acp_bridge::translate::codex_to_acp_initialize(&codex_params);
     assert!(acp_request.is_ok());
 
     let acp_request = acp_request.unwrap();
@@ -38,8 +38,7 @@ fn test_acp_to_codex_initialize_result() {
         },
     });
 
-    let codex_result =
-        alleycat_acp_bridge::translate::acp_to_codex_initialize_result(&acp_response);
+    let codex_result = remora_acp_bridge::translate::acp_to_codex_initialize_result(&acp_response);
     assert!(codex_result.is_ok());
 
     let codex_result = codex_result.unwrap();
@@ -70,7 +69,7 @@ fn test_codex_to_acp_new_session() {
         "cwd": "/home/user/project",
     });
 
-    let acp_request = alleycat_acp_bridge::translate::codex_to_acp_new_session(&codex_params);
+    let acp_request = remora_acp_bridge::translate::codex_to_acp_new_session(&codex_params);
     assert!(acp_request.is_ok());
 
     let acp_request = acp_request.unwrap();
@@ -83,7 +82,7 @@ fn test_acp_to_codex_thread_start() {
         "sessionId": "test-session-123",
     });
 
-    let codex_response = alleycat_acp_bridge::translate::acp_to_codex_thread_start(&acp_response);
+    let codex_response = remora_acp_bridge::translate::acp_to_codex_thread_start(&acp_response);
     assert!(codex_response.is_ok());
 
     let codex_response = codex_response.unwrap();

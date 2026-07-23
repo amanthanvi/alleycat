@@ -1,5 +1,5 @@
 [package]
-name = "alleycat-bridge-core"
+name = "remora-bridge-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,14 +7,14 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-description = "Shared JSON-RPC framing, server scaffolding, and notification plumbing for alleycat coding-agent bridges."
+description = "Shared JSON-RPC framing, server scaffolding, and notification plumbing for remora coding-agent bridges."
 
 [lib]
-name = "alleycat_bridge_core"
+name = "remora_bridge_core"
 path = "src/lib.rs"
 
 [dependencies]
-alleycat-codex-proto = { workspace = true }
+remora-codex-proto = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }

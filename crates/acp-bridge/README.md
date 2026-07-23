@@ -1,17 +1,17 @@
-# ACP Bridge for Alleycat
+# ACP Bridge for Remora
 
-This is a standard [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) bridge for Alleycat that allows communication with any ACP-compliant agent, including Devin (`devin acp`), Grok (`grok agent stdio`), and other ACP-compatible agents.
+This is a standard [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) bridge for Remora that allows communication with any ACP-compliant agent, including Devin (`devin acp`), Grok (`grok agent stdio`), and other ACP-compatible agents.
 
 ## Overview
 
-The ACP bridge implements the `alleycat_bridge_core::Bridge` trait to translate between the Codex protocol (used by Alleycat) and the ACP protocol (used by ACP-compliant agents). This makes it possible to use Devin and other ACP agents with the Alleycat daemon.
+The ACP bridge implements the `remora_bridge_core::Bridge` trait to translate between the Codex protocol (used by Remora) and the ACP protocol (used by ACP-compliant agents). This makes it possible to use Devin and other ACP agents with the Remora daemon.
 
 ## Architecture
 
 The bridge consists of several key components:
 
 - **ACP Client** (`acp_client.rs`): Handles stdio communication with ACP agents using JSON-RPC
-- **Bridge** (`bridge.rs`): Implements the `Bridge` trait for Alleycat integration
+- **Bridge** (`bridge.rs`): Implements the `Bridge` trait for Remora integration
 - **Translation Layer** (`translate.rs`): Converts between Codex protocol and ACP protocol messages
 - **Pool** (`pool.rs`): Manages a pool of agent processes for efficiency
 - **Handlers** (`handlers.rs`): Implements Codex protocol method handlers
@@ -100,7 +100,7 @@ export ACP_BRIDGE_AGENT_BIN=devin
 export ACP_BRIDGE_AGENT_ARGS="acp"
 
 # Run the bridge
-alleycat-acp-bridge
+remora-acp-bridge
 ```
 
 ### With Custom Agent
@@ -110,29 +110,29 @@ alleycat-acp-bridge
 export ACP_BRIDGE_AGENT_BIN=/path/to/other-agent
 export ACP_BRIDGE_AGENT_ARGS="acp --mode standard"
 
-alleycat-acp-bridge
+remora-acp-bridge
 ```
 
 ### Unix Socket Mode
 
 ```bash
 # Listen on a Unix socket instead of stdio
-alleycat-acp-bridge --socket /tmp/acp-bridge.sock
+remora-acp-bridge --socket /tmp/acp-bridge.sock
 ```
 
 ## Conformance Testing
 
-The ACP bridge is integrated into the Alleycat conformance test suite. To run the ACP conformance test:
+The ACP bridge is integrated into the Remora conformance test suite. To run the ACP conformance test:
 
 ```bash
 # Requires devin (or grok, or other ACP agent) on PATH
-cargo test -p alleycat-bridge-conformance -- conformance_acp -- --ignored --nocapture
+cargo test -p remora-bridge-conformance -- conformance_acp -- --ignored --nocapture
 ```
 
 To run all conformance tests including ACP:
 
 ```bash
-cargo test -p alleycat-bridge-conformance -- conformance_diff_all_against_codex -- --ignored --nocapture
+cargo test -p remora-bridge-conformance -- conformance_diff_all_against_codex -- --ignored --nocapture
 ```
 
 Note: The ACP bridge has several methods marked as "skipped" in the conformance diff configuration since they are not yet fully implemented. This allows the bridge to pass conformance testing for the methods that are implemented while acknowledging the gaps.
@@ -179,7 +179,7 @@ This aligns with the requirement that "if using acp, it should be more of a stan
 
 ### Session Management
 
-The bridge uses the same session key pattern as other Alleycat bridges: `format!("{}:{}", session.agent, session.node_id)`. This ensures consistency with the existing Alleycat architecture.
+The bridge uses the same session key pattern as other Remora bridges: `format!("{}:{}", session.agent, session.node_id)`. This ensures consistency with the existing Remora architecture.
 
 ### Conformance Strategy
 
@@ -418,5 +418,5 @@ These gaps are documented in the conformance configuration and represent fundame
 
 - [Agent Client Protocol Specification](https://agentclientprotocol.com/)
 - [ACP Schema](https://agentclientprotocol.com/protocol/schema)
-- [Alleycat Bridge Core](../bridge-core/)
+- [Remora Bridge Core](../bridge-core/)
 - [Devin ACP Command](https://docs.devin.ai/)

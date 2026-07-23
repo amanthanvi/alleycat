@@ -85,7 +85,7 @@ fn scripted_turn(stdout: &mut io::Stdout, prompt: &str) {
             json!({
                 "type":"tool_progress_update",
                 "toolUseId":"tool_1",
-                "update":{"fullOutput":"alleycat-marker"}
+                "update":{"fullOutput":"remora-marker"}
             }),
         );
         notification(
@@ -94,11 +94,11 @@ fn scripted_turn(stdout: &mut io::Stdout, prompt: &str) {
                 "type":"tool_result",
                 "toolUseId":"tool_1",
                 "toolName":"Execute",
-                "content":"alleycat-marker\n[Process exited with code 0]",
+                "content":"remora-marker\n[Process exited with code 0]",
                 "isError":false
             }),
         );
-        assistant(stdout, "The literal contents are alleycat-marker.");
+        assistant(stdout, "The literal contents are remora-marker.");
     } else {
         assistant(stdout, "OK");
     }

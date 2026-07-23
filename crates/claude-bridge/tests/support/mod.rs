@@ -4,7 +4,7 @@
 //! - [`fake_claude_path`] returns the path to the `fake-claude` binary cargo
 //!   built for us. Tests pass it to `ClaudePool::new` (or set
 //!   `CLAUDE_BRIDGE_CLAUDE_BIN` when launching the bridge binary).
-//! - [`alleycat_claude_bridge_path`] is the bridge binary, used by the
+//! - [`remora_claude_bridge_path`] is the bridge binary, used by the
 //!   subprocess smoke driver in `smoke_binary.rs`.
 //! - [`write_script`] persists a list of `serde_json::Value` events to a
 //!   `FAKE_CLAUDE_SCRIPT` file the fake replays per turn.
@@ -23,9 +23,9 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use alleycat_bridge_core::ThreadIndexHandle;
-use alleycat_claude_bridge::index::{ClaudeSessionRef, IndexEntry, ListFilter, ListPage, ListSort};
 use async_trait::async_trait;
+use remora_bridge_core::ThreadIndexHandle;
+use remora_claude_bridge::index::{ClaudeSessionRef, IndexEntry, ListFilter, ListPage, ListSort};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -36,10 +36,10 @@ pub fn fake_claude_path() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_fake-claude"))
 }
 
-/// Path to the `alleycat-claude-bridge` binary cargo built alongside the
+/// Path to the `remora-claude-bridge` binary cargo built alongside the
 /// integration tests. Used by the subprocess smoke driver.
-pub fn alleycat_claude_bridge_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_alleycat-claude-bridge"))
+pub fn remora_claude_bridge_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_BIN_EXE_remora-claude-bridge"))
 }
 
 /// Persist `events` as a JSONL file the fake-claude binary can load via

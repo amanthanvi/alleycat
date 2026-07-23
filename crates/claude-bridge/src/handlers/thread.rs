@@ -13,12 +13,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use alleycat_bridge_core::{ProcessRole, ProcessSpec, StdioMode};
+use remora_bridge_core::{ProcessRole, ProcessSpec, StdioMode};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
-use alleycat_codex_proto as p;
+use remora_codex_proto as p;
 
 use crate::handlers::model::{normalize_claude_model, normalize_claude_model_id};
 use crate::index::IndexEntry;
@@ -593,7 +593,7 @@ pub async fn handle_thread_list(
         key: params.sort_key.unwrap_or(p::ThreadSortKey::CreatedAt),
         direction: params.sort_direction.unwrap_or(p::SortDirection::Desc),
     };
-    let limit = alleycat_bridge_core::resolve_list_limit(params.limit);
+    let limit = remora_bridge_core::resolve_list_limit(params.limit);
     // `use_state_db_only` is accepted but always-true for this bridge: list
     // is served from the threads.json index, and the JSONL scan-and-repair
     // hydration happens at startup, not per-list.
@@ -608,7 +608,7 @@ pub async fn handle_thread_list(
     let backwards_cursor = page
         .data
         .first()
-        .map(|e| alleycat_bridge_core::encode_backwards_cursor(e, sort));
+        .map(|e| remora_bridge_core::encode_backwards_cursor(e, sort));
 
     let loaded: std::collections::HashSet<String> = state
         .claude_pool()
@@ -1056,7 +1056,7 @@ mod tests {
 
     async fn dummy_state() -> Arc<ConnectionState> {
         let dir = tempfile::tempdir().unwrap();
-        let index = alleycat_bridge_core::ThreadIndex::<crate::index::ClaudeSessionRef>::open_at(
+        let index = remora_bridge_core::ThreadIndex::<crate::index::ClaudeSessionRef>::open_at(
             dir.path().join("t.json"),
         )
         .await

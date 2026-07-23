@@ -1,6 +1,6 @@
 //! Bridge-side thread index.
 //!
-//! This module is now a thin layer over [`alleycat_bridge_core::ThreadIndex<PiSessionRef>`].
+//! This module is now a thin layer over [`remora_bridge_core::ThreadIndex<PiSessionRef>`].
 //! The on-disk wire format is preserved exactly: rows live at
 //! `<codex_home>/threads.json` with the pi-specific `piSessionPath` /
 //! `piSessionId` fields flattened at the row's top level (matching the
@@ -23,10 +23,10 @@ use crate::codex_proto::{SessionSource, Thread, ThreadSourceKind, ThreadStatus};
 
 pub use pi_session_scan::{PiSessionInfo, list_all, list_sessions_from_dir, pi_sessions_dir};
 
-pub use alleycat_bridge_core::{ListFilter, ListPage, ListSort};
+pub use remora_bridge_core::{ListFilter, ListPage, ListSort};
 
 /// Bridge CLI version string baked into `Thread.cli_version`.
-pub const CLI_VERSION: &str = concat!("alleycat-pi-bridge/", env!("CARGO_PKG_VERSION"));
+pub const CLI_VERSION: &str = concat!("remora-pi-bridge/", env!("CARGO_PKG_VERSION"));
 
 /// Pi-specific row metadata. Flattened into the on-disk JSON so the row
 /// shape matches today's wire format byte-for-byte.
@@ -42,7 +42,7 @@ pub struct PiSessionRef {
 /// Row in the index. Generic alias over `bridge_core::IndexEntry` with the
 /// pi-specific metadata shape. Bridges, handlers, and the daemon all share
 /// this exact shape.
-pub type IndexEntry = alleycat_bridge_core::IndexEntry<PiSessionRef>;
+pub type IndexEntry = remora_bridge_core::IndexEntry<PiSessionRef>;
 
 /// Compatibility newtype around `bridge_core::ThreadIndex<PiSessionRef>`
 /// that re-exposes the pre-A2 inherent constructors (`open`, `open_at`,
@@ -53,7 +53,7 @@ pub type IndexEntry = alleycat_bridge_core::IndexEntry<PiSessionRef>;
 ///
 /// Removed in A5 along with the rest of the compat surface.
 #[repr(transparent)]
-pub struct ThreadIndex(alleycat_bridge_core::ThreadIndex<PiSessionRef>);
+pub struct ThreadIndex(remora_bridge_core::ThreadIndex<PiSessionRef>);
 
 impl ThreadIndex {
     /// Open the index at `<codex_home>/threads.json`, creating its parent
@@ -64,13 +64,12 @@ impl ThreadIndex {
 
     /// Variant of `open` that takes the threads.json path directly.
     pub async fn open_at(path: PathBuf) -> Result<Arc<Self>> {
-        let inner = alleycat_bridge_core::ThreadIndex::<PiSessionRef>::open_at(path).await?;
+        let inner = remora_bridge_core::ThreadIndex::<PiSessionRef>::open_at(path).await?;
         Ok(unsafe {
             // Safety: `ThreadIndex` is `#[repr(transparent)]` over
             // `bridge_core::ThreadIndex<PiSessionRef>`, so the `Arc` layout
             // is identical and we can transmute the pointer type.
-            let raw = Arc::into_raw(inner) as *const alleycat_bridge_core::ThreadIndex<PiSessionRef>
-                as *const Self;
+            let raw = Arc::into_raw(inner) as *const Self;
             Arc::from_raw(raw)
         })
     }
@@ -86,7 +85,7 @@ impl ThreadIndex {
         hydrator: &PiHydrator,
     ) -> Result<Arc<Self>> {
         let path = codex_home.join("threads.json");
-        let inner = alleycat_bridge_core::ThreadIndex::<PiSessionRef>::open_at(path).await?;
+        let inner = remora_bridge_core::ThreadIndex::<PiSessionRef>::open_at(path).await?;
 
         // Step 1: scan and insert any rows we haven't seen before.
         let scanned = hydrator.scan_sessions().await;
@@ -134,14 +133,13 @@ impl ThreadIndex {
         }
 
         Ok(unsafe {
-            let raw = Arc::into_raw(inner) as *const alleycat_bridge_core::ThreadIndex<PiSessionRef>
-                as *const Self;
+            let raw = Arc::into_raw(inner) as *const Self;
             Arc::from_raw(raw)
         })
     }
 
     /// Access the underlying `bridge_core::ThreadIndex<PiSessionRef>`.
-    pub fn inner(&self) -> &alleycat_bridge_core::ThreadIndex<PiSessionRef> {
+    pub fn inner(&self) -> &remora_bridge_core::ThreadIndex<PiSessionRef> {
         &self.0
     }
 
@@ -210,14 +208,14 @@ impl ThreadIndex {
 }
 
 impl std::ops::Deref for ThreadIndex {
-    type Target = alleycat_bridge_core::ThreadIndex<PiSessionRef>;
+    type Target = remora_bridge_core::ThreadIndex<PiSessionRef>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 #[async_trait::async_trait]
-impl alleycat_bridge_core::ThreadIndexHandle<PiSessionRef> for ThreadIndex {
+impl remora_bridge_core::ThreadIndexHandle<PiSessionRef> for ThreadIndex {
     async fn lookup(&self, thread_id: &str) -> Option<IndexEntry> {
         self.0.lookup(thread_id).await
     }
@@ -307,7 +305,7 @@ pub fn thread_from_entry(entry: &IndexEntry) -> Thread {
         thread_source: None,
         agent_nickname: None,
         agent_role: None,
-        git_info: alleycat_bridge_core::git_info_for_cwd(&entry.cwd),
+        git_info: remora_bridge_core::git_info_for_cwd(&entry.cwd),
         name: entry.name.clone(),
         turns: Vec::new(),
     }
@@ -386,7 +384,7 @@ impl Default for PiHydrator {
 }
 
 #[async_trait::async_trait]
-impl alleycat_bridge_core::Hydrator<PiSessionRef> for PiHydrator {
+impl remora_bridge_core::Hydrator<PiSessionRef> for PiHydrator {
     async fn scan(&self) -> Result<Vec<IndexEntry>> {
         let scanned = self.scan_sessions().await;
         Ok(scanned.iter().map(entry_from_pi).collect())

@@ -1,11 +1,11 @@
-//! F1 verification: spawn `alleycat-pi-bridge --listen <socket>` and prove
+//! F1 verification: spawn `remora-pi-bridge --listen <socket>` and prove
 //! that two concurrent `UnixStream` connections share the same daemon process
 //! while driving independent threads against the fake-pi backend.
 //!
 //! This is the only integration test in the suite that drives the actual
 //! binary boundary — every other test calls handler functions directly. The
 //! daemon path matters specifically for fleet mode (`agents.toml` →
-//! `alleycat-pi-bridge --listen ...`), so we exercise it end-to-end here.
+//! `remora-pi-bridge --listen ...`), so we exercise it end-to-end here.
 //!
 //! ## Concurrency model
 //!
@@ -20,7 +20,7 @@
 
 mod support;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -123,8 +123,8 @@ async fn two_concurrent_connections_share_one_daemon() -> Result<()> {
     Ok(())
 }
 
-fn spawn_daemon(socket_path: &PathBuf, script_path: &PathBuf) -> Result<Child> {
-    let bin = env!("CARGO_BIN_EXE_alleycat-pi-bridge");
+fn spawn_daemon(socket_path: &Path, script_path: &Path) -> Result<Child> {
+    let bin = env!("CARGO_BIN_EXE_remora-pi-bridge");
     Command::new(bin)
         .args(["--listen", socket_path.to_str().expect("socket path utf8")])
         .env("PI_BRIDGE_PI_BIN", fake_pi_path())
@@ -140,7 +140,7 @@ fn spawn_daemon(socket_path: &PathBuf, script_path: &PathBuf) -> Result<Child> {
         .stderr(Stdio::inherit())
         .kill_on_drop(true)
         .spawn()
-        .context("spawn alleycat-pi-bridge daemon")
+        .context("spawn remora-pi-bridge daemon")
 }
 
 /// Poll the socket path until it appears, up to `SPAWN_TIMEOUT`. The bridge

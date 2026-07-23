@@ -5,7 +5,7 @@
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/amanthanvi/alleycat.git",
+    "url": "git+https://github.com/amanthanvi/remora-link.git",
     "directory": "npm/platforms/win32-x64"
   },
   "os": ["win32"],
@@ -14,7 +14,8 @@
     "bin/remora-link.exe",
     "bin/remora-link-startup.exe",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE.md"
   ],
   "publishConfig": { "access": "public", "provenance": true }
 }

@@ -1,12 +1,12 @@
 # Remora Link
 
-Remora Link is the neutral, Remora-owned host wrapper around Alleycat. It runs
+Remora Link is the Remora-owned host command. It runs
 on the user's computer, exposes the installed coding-agent harnesses to paired
 Remora clients, and delegates the complete CLI and daemon lifecycle to
-`alleycat::App`.
+`remora_host::App`.
 
 The wrapper deliberately contains no harness installer or package-manager
-fallback. Alleycat detects configured executables already present on the host
+fallback. Remora detects configured executables already present on the host
 and launches those executables directly. A missing harness stays unavailable
 until the user installs it through that harness's own trusted distribution
 channel.
@@ -26,5 +26,5 @@ commands such as `status` run without creating that persistent install.
 Consequently, `npx remora-link install` registers a stable executable path
 rather than a transient npm cache path.
 
-See [MAINTENANCE.md](MAINTENANCE.md) for fork policy, upstream sync, and the
+See [MAINTENANCE.md](MAINTENANCE.md) for ownership, validation, and the
 relay-provider boundary.

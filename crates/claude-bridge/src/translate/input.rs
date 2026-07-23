@@ -21,7 +21,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use thiserror::Error;
 
-use alleycat_codex_proto::UserInput;
+use remora_codex_proto::UserInput;
 
 use crate::pool::claude_protocol::{
     ClaudeImageBlock, ClaudeImageSource, ClaudeInbound, ClaudeTextBlock, ClaudeUserContent,

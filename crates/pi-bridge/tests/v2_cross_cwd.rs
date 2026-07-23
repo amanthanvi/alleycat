@@ -26,8 +26,8 @@ mod support;
 
 use std::time::{Duration, Instant};
 
-use alleycat_pi_bridge::pool::PiPool;
-use alleycat_pi_bridge::pool::pi_protocol::{BashCmd, PiEvent, PromptCmd, RpcCommand};
+use remora_pi_bridge::pool::PiPool;
+use remora_pi_bridge::pool::pi_protocol::{BashCmd, PiEvent, PromptCmd, RpcCommand};
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::timeout;
@@ -149,7 +149,7 @@ async fn two_threads_in_different_cwds_run_concurrently_and_pin_their_cwd() {
     let events_a = handle_a.subscribe_events();
     let events_b = handle_b.subscribe_events();
 
-    let send_prompt = |handle: std::sync::Arc<alleycat_pi_bridge::pool::PiProcessHandle>| async move {
+    let send_prompt = |handle: std::sync::Arc<remora_pi_bridge::pool::PiProcessHandle>| async move {
         handle
             .send_request(RpcCommand::Prompt(PromptCmd {
                 id: None,

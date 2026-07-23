@@ -8,7 +8,7 @@
 //! `account_serializes_fields_in_camel_case`). If these tests start failing,
 //! either codex changed the wire format upstream or our mirror drifted.
 
-use alleycat_pi_bridge::codex_proto as p;
+use remora_pi_bridge::codex_proto as p;
 use serde_json::json;
 
 #[test]

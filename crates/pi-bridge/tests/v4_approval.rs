@@ -52,12 +52,12 @@ fn scenario_lock() -> &'static AsyncMutex<()> {
     LOCK.get_or_init(|| AsyncMutex::new(()))
 }
 
-use alleycat_pi_bridge::approval;
-use alleycat_pi_bridge::codex_proto as p;
-use alleycat_pi_bridge::handlers::turn::handle_turn_start;
-use alleycat_pi_bridge::index::{IndexEntry, ThreadIndex};
-use alleycat_pi_bridge::pool::PiPool;
-use alleycat_pi_bridge::state::{ConnectionState, ThreadDefaults, ThreadIndexHandle};
+use remora_pi_bridge::approval;
+use remora_pi_bridge::codex_proto as p;
+use remora_pi_bridge::handlers::turn::handle_turn_start;
+use remora_pi_bridge::index::{IndexEntry, ThreadIndex};
+use remora_pi_bridge::pool::PiPool;
+use remora_pi_bridge::state::{ConnectionState, ThreadDefaults, ThreadIndexHandle};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::time::timeout;
@@ -141,7 +141,7 @@ async fn run_approval_scenario(decision: Value) -> ApprovalScenario {
             forked_from_id: None,
             model_provider: "fake".into(),
             source: p::ThreadSourceKind::AppServer,
-            metadata: alleycat_pi_bridge::PiSessionRef {
+            metadata: remora_pi_bridge::PiSessionRef {
                 pi_session_path: cwd.path().join("session.jsonl"),
                 pi_session_id: "pi-session-1".into(),
             },
@@ -315,11 +315,11 @@ async fn cancel_decision_triggers_pi_abort() {
     // initial setup, if any), prompt, abort. The bridge issues abort when
     // the approval bucket is `Cancel`.
     assert!(
-        cmds.iter().any(|c| *c == "abort"),
+        cmds.contains(&"abort"),
         "expected pi to receive `abort` on cancel; got: {cmds:?}",
     );
     assert!(
-        cmds.iter().any(|c| *c == "prompt"),
+        cmds.contains(&"prompt"),
         "expected pi to receive `prompt` (the turn started); got: {cmds:?}",
     );
 
@@ -345,11 +345,11 @@ async fn accept_decision_does_not_send_abort() {
 
     let cmds = pi_commands(&scenario.command_log);
     assert!(
-        cmds.iter().any(|c| *c == "prompt"),
+        cmds.contains(&"prompt"),
         "expected pi to receive `prompt`; got: {cmds:?}",
     );
     assert!(
-        !cmds.iter().any(|c| *c == "abort"),
+        !cmds.contains(&"abort"),
         "expected NO `abort` on accept; got: {cmds:?}",
     );
 
@@ -373,7 +373,7 @@ async fn decline_does_not_abort_per_codex_decline_semantics() {
 
     let cmds = pi_commands(&scenario.command_log);
     assert!(
-        !cmds.iter().any(|c| *c == "abort"),
+        !cmds.contains(&"abort"),
         "decline must NOT trigger pi abort (only cancel does); got: {cmds:?}",
     );
 

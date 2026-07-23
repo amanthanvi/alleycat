@@ -168,6 +168,12 @@ pub(crate) fn render_tool_call_public(state: &ToolCallState) -> Value {
     render_tool_call(state)
 }
 
+impl Default for SessionUpdateTranslator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionUpdateTranslator {
     pub fn new() -> Self {
         Self {
@@ -494,7 +500,7 @@ fn new_item_id(prefix: &str) -> String {
 }
 
 /// Decode a base64-encoded image payload to a temp file under
-/// `<tmp>/alleycat-acp-images/` and return the path. The file persists
+/// `<tmp>/remora-acp-images/` and return the path. The file persists
 /// for the lifetime of the daemon (no cleanup) — adequate for a v1
 /// since iOS only needs to load it while the conversation is open.
 fn write_image_data(data_b64: &str, mime: &str) -> std::io::Result<String> {
@@ -503,7 +509,7 @@ fn write_image_data(data_b64: &str, mime: &str) -> std::io::Result<String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_b64.as_bytes())
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let dir = std::env::temp_dir().join("alleycat-acp-images");
+    let dir = std::env::temp_dir().join("remora-acp-images");
     std::fs::create_dir_all(&dir)?;
     let ext = match mime.split('/').nth(1).unwrap_or("png") {
         "jpeg" => "jpg",
@@ -666,17 +672,16 @@ fn map_status(acp_status: &str) -> &'static str {
 fn extract_command_from_content(content: &[Value]) -> Option<String> {
     for block in content {
         if let Some(inner) = block.get("content") {
-            if let Some(text) = inner.get("text").and_then(|v| v.as_str()) {
-                if !text.is_empty() {
-                    return Some(text.to_string());
-                }
+            if let Some(text) = inner.get("text").and_then(|v| v.as_str())
+                && !text.is_empty()
+            {
+                return Some(text.to_string());
             }
-            if let Some(resource) = inner.get("resource") {
-                if let Some(text) = resource.get("text").and_then(|v| v.as_str()) {
-                    if !text.is_empty() {
-                        return Some(text.to_string());
-                    }
-                }
+            if let Some(resource) = inner.get("resource")
+                && let Some(text) = resource.get("text").and_then(|v| v.as_str())
+                && !text.is_empty()
+            {
+                return Some(text.to_string());
             }
         }
     }
@@ -747,15 +752,15 @@ fn aggregate_text_output(content: &[Value]) -> Option<String> {
     let mut buf = String::new();
     for block in content {
         if block.get("type").and_then(|v| v.as_str()) == Some("content") {
-            if let Some(inner) = block.get("content") {
-                if let Some(text) = inner.get("text").and_then(|v| v.as_str()) {
-                    buf.push_str(text);
-                }
+            if let Some(inner) = block.get("content")
+                && let Some(text) = inner.get("text").and_then(|v| v.as_str())
+            {
+                buf.push_str(text);
             }
-        } else if block.get("type").and_then(|v| v.as_str()) == Some("terminal") {
-            if let Some(t) = block.get("terminalId").and_then(|v| v.as_str()) {
-                buf.push_str(&format!("[terminal:{t}]"));
-            }
+        } else if block.get("type").and_then(|v| v.as_str()) == Some("terminal")
+            && let Some(t) = block.get("terminalId").and_then(|v| v.as_str())
+        {
+            buf.push_str(&format!("[terminal:{t}]"));
         }
     }
     if buf.is_empty() { None } else { Some(buf) }

@@ -2,7 +2,7 @@
 //! protocol.
 //!
 //! Drives one canonical scenario (`scenario::run`) through every reachable
-//! target — real `codex app-server` over TCP plus each of the alleycat bridges
+//! target — real `codex app-server` over TCP plus each of the remora bridges
 //! over their native transport — and records a [`Transcript`] of every frame
 //! emitted on the wire. The recorded transcripts are then validated by
 //! [`schema`] (do they deserialize cleanly into the typed `codex-proto`
@@ -36,19 +36,19 @@ use serde_json::Value;
 pub enum TargetId {
     /// Real `codex app-server` over TCP — the canonical reference.
     Codex,
-    /// `alleycat-pi-bridge` over stdio (`pi-coding-agent` backend).
+    /// `remora-pi-bridge` over stdio (`pi-coding-agent` backend).
     Pi,
-    /// `alleycat-amp-bridge` over stdio (`amp --stream-json` backend).
+    /// `remora-amp-bridge` over stdio (`amp --stream-json` backend).
     Amp,
-    /// `alleycat-claude-bridge` over stdio (`claude -p` backend).
+    /// `remora-claude-bridge` over stdio (`claude -p` backend).
     Claude,
-    /// `alleycat-opencode-bridge` over Unix socket (`opencode serve` backend).
+    /// `remora-opencode-bridge` over Unix socket (`opencode serve` backend).
     Opencode,
-    /// `alleycat-droid-bridge` over stdio (`droid exec` backend).
+    /// `remora-droid-bridge` over stdio (`droid exec` backend).
     Droid,
-    /// `alleycat-hermes-bridge` over stdio (Hermes Agent API or CLI backend).
+    /// `remora-hermes-bridge` over stdio (Hermes Agent API or CLI backend).
     Hermes,
-    /// `alleycat-acp-bridge` over stdio (ACP-compliant agent backend).
+    /// `remora-acp-bridge` over stdio (ACP-compliant agent backend).
     Acp,
 }
 

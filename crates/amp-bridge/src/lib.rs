@@ -1,4 +1,4 @@
-//! `alleycat-amp-bridge` — codex app-server facade over `amp --stream-json`.
+//! `remora-amp-bridge` — codex app-server facade over `amp --stream-json`.
 
 pub mod bridge;
 pub mod command_exec;

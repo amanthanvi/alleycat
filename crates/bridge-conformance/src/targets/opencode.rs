@@ -1,4 +1,4 @@
-//! Opencode target — spawn `alleycat-opencode-bridge --socket=<tmp>.sock`
+//! Opencode target — spawn `remora-opencode-bridge --socket=<tmp>.sock`
 //! (the bridge has no stdio mode) and connect via `UnixStream`. The bridge
 //! itself auto-spawns `opencode serve` on first use; we just have to point
 //! `OPENCODE_BRIDGE_BIN` at the resolved binary so it doesn't fall back to

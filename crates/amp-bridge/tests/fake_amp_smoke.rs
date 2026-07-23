@@ -12,8 +12,8 @@ use std::sync::{
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use alleycat_amp_bridge::AmpBridge;
-use alleycat_bridge_core::{
+use remora_amp_bridge::AmpBridge;
+use remora_bridge_core::{
     ChildProcess, ChildStderr, ChildStdin, ChildStdout, LocalLauncher, ProcessLauncher,
     ProcessSpec, serve_stream,
 };

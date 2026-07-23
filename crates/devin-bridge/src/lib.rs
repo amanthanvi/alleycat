@@ -1,7 +1,7 @@
 //! Devin-specific bridge.
 //!
 //! Devin speaks ACP, so the bulk of the work (initialize, thread/start,
-//! thread/resume, turn/start, etc.) lives in `alleycat-acp-bridge`. The one
+//! thread/resume, turn/start, etc.) lives in `remora-acp-bridge`. The one
 //! place ACP isn't enough is `thread/list`: devin's ACP `session/list` filters
 //! its sessions (untitled / low-message sessions are omitted), and the iOS
 //! app wants every saved session regardless of working directory. So this
@@ -15,10 +15,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alleycat_acp_bridge::AcpBridge;
-use alleycat_bridge_core::{Bridge, Conn, JsonRpcError, error_codes};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use remora_acp_bridge::AcpBridge;
+use remora_bridge_core::{Bridge, Conn, JsonRpcError, error_codes};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use tracing::warn;

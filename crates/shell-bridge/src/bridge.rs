@@ -4,17 +4,17 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use alleycat_bridge_core::{Bridge, Conn, JsonRpcError, error_codes};
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use remora_bridge_core::{Bridge, Conn, JsonRpcError, error_codes};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 
 use crate::session::{ShellSession, ShellSize};
 
-const USER_AGENT: &str = concat!("alleycat-shell-bridge/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("remora-shell-bridge/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Default)]
 pub struct ShellBridgeBuilder {
@@ -40,17 +40,16 @@ impl ShellBridgeBuilder {
     }
 
     pub fn from_env(mut self) -> Self {
-        if self.shell_bin.is_none() {
-            if let Ok(shell) = std::env::var("ALLEYCAT_SHELL_BIN") {
-                if !shell.trim().is_empty() {
-                    self.shell_bin = Some(shell);
-                }
-            }
+        if self.shell_bin.is_none()
+            && let Ok(shell) = std::env::var("REMORA_SHELL_BIN")
+            && !shell.trim().is_empty()
+        {
+            self.shell_bin = Some(shell);
         }
-        if self.default_cwd.is_none() {
-            if let Some(cwd) = std::env::var_os("ALLEYCAT_SHELL_CWD") {
-                self.default_cwd = Some(PathBuf::from(cwd));
-            }
+        if self.default_cwd.is_none()
+            && let Some(cwd) = std::env::var_os("REMORA_SHELL_CWD")
+        {
+            self.default_cwd = Some(PathBuf::from(cwd));
         }
         self
     }
@@ -294,7 +293,7 @@ struct ShellExitNotification {
 fn spawn_output_thread(
     session_id: String,
     mut reader: Box<dyn Read + Send>,
-    notifier: alleycat_bridge_core::NotificationSender,
+    notifier: remora_bridge_core::NotificationSender,
     sessions: Arc<Mutex<HashMap<String, Arc<ShellSession>>>>,
 ) {
     std::thread::spawn(move || {
@@ -328,7 +327,7 @@ fn spawn_output_thread(
 fn spawn_wait_thread(
     session_id: String,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
-    notifier: alleycat_bridge_core::NotificationSender,
+    notifier: remora_bridge_core::NotificationSender,
     sessions: Arc<Mutex<HashMap<String, Arc<ShellSession>>>>,
 ) {
     std::thread::spawn(move || {

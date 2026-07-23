@@ -19,7 +19,7 @@ use anyhow::Result;
 use serde_json::Value;
 use serde_json::json;
 
-use alleycat_codex_proto as p;
+use remora_codex_proto as p;
 
 use crate::state::ConnectionState;
 

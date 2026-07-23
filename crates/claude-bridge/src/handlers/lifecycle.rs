@@ -6,13 +6,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alleycat_codex_proto as p;
 use anyhow::Result;
+use remora_codex_proto as p;
 
 use crate::state::ConnectionState;
 
 /// Bridge user agent string included in `initialize` responses.
-pub const USER_AGENT: &str = concat!("alleycat-claude-bridge/", env!("CARGO_PKG_VERSION"));
+pub const USER_AGENT: &str = concat!("remora-claude-bridge/", env!("CARGO_PKG_VERSION"));
 
 /// Default codex_home for the bridge: `$XDG_CONFIG_HOME/codex/claude-bridge`
 /// on Linux, equivalent on macOS/Windows. Falls back to `.codex/claude-bridge`

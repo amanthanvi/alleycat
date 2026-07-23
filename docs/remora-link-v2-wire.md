@@ -11,9 +11,9 @@ is intentionally narrower than the security architecture that motivated it:
 manual locator codes, SPAKE2, grant delegation, peer administration, recovery,
 and device-key rotation are not part of this version.
 
-The legacy `alleycat/1` bearer protocol is a separate compatibility lane. A v2
-client must never send a v1 token on this ALPN and must never retry v1 after a
-v2 failure.
+Any ALPN other than `remora-link/2` and any payload from an earlier protocol
+version is unsupported and rejected. Clients must never retry another protocol
+after a v2 failure.
 
 V2 does not send a portable bearer or signed grant object to the client. The
 host-local device record is authoritative; the client retains only the public

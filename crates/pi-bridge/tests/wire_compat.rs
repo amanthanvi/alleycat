@@ -9,8 +9,8 @@
 
 use std::path::PathBuf;
 
-use alleycat_pi_bridge::codex_proto::ThreadSourceKind;
-use alleycat_pi_bridge::index::{IndexEntry, PiSessionRef, ThreadIndex};
+use remora_pi_bridge::codex_proto::ThreadSourceKind;
+use remora_pi_bridge::index::{IndexEntry, PiSessionRef, ThreadIndex};
 use serde_json::json;
 
 fn sample_entry(thread_id: &str) -> IndexEntry {

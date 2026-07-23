@@ -3,11 +3,11 @@ use std::ffi::OsString;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
-use alleycat_bridge_core::{
+use anyhow::Result;
+use remora_bridge_core::{
     ChildProcess, LocalLauncher, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode,
 };
-use alleycat_codex_proto as p;
-use anyhow::Result;
+use remora_codex_proto as p;
 use tokio::io::AsyncReadExt;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
@@ -84,7 +84,7 @@ pub async fn handle_command_exec(
         role: ProcessRole::ToolCommand,
         program: argv[0].clone().into(),
         args: argv[1..].iter().map(|s| s.clone().into()).collect(),
-        cwd: params.cwd.clone().map(Into::into),
+        cwd: params.cwd.clone(),
         env,
         env_clear: false,
         stdin: StdioMode::Null,

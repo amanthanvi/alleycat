@@ -1,14 +1,14 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use alleycat_claude_remote_control::{
+use anyhow::{Context, Result, bail};
+use clap::{Args, Parser, Subcommand, error::ErrorKind};
+use remora_claude_remote_control::{
     BridgeApiClient, BridgeEnvironmentRegistration, ClaudeAuthState, ClaudeCredentialStore,
     DaemonConfig, EndpointConfig, EnvironmentKind, PermissionMode, RemoteControlAvailability,
     RemoteControlDaemonEntry, RemoteEvent, SessionContext, SessionCreateRequest, SessionSource,
     SpawnMode, read_session_ingress_token_override,
 };
-use anyhow::{Context, Result, bail};
-use clap::{Args, Parser, Subcommand, error::ErrorKind};
 use reqwest::Method;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -16,7 +16,7 @@ use url::Url;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "alleycat-claude-remote-control",
+    name = "remora-claude-remote-control",
     about = "Claude Code Remote Control API and credential inspection CLI"
 )]
 struct Cli {
@@ -470,7 +470,7 @@ async fn run_worker(base_url: Option<Url>, command: WorkerCommand) -> Result<()>
                 .worker_init(
                     &base.session_base_url,
                     &token,
-                    &alleycat_claude_remote_control::wire::WorkerInitRequest {
+                    &remora_claude_remote_control::wire::WorkerInitRequest {
                         worker_epoch,
                         state,
                     },
@@ -488,7 +488,7 @@ async fn run_worker(base_url: Option<Url>, command: WorkerCommand) -> Result<()>
                 .worker_heartbeat(
                     &base.session_base_url,
                     &token,
-                    &alleycat_claude_remote_control::wire::WorkerHeartbeatRequest {
+                    &remora_claude_remote_control::wire::WorkerHeartbeatRequest {
                         session_id,
                         worker_epoch,
                     },
@@ -507,7 +507,7 @@ async fn run_worker(base_url: Option<Url>, command: WorkerCommand) -> Result<()>
                 .worker_events(
                     &base.session_base_url,
                     &token,
-                    &alleycat_claude_remote_control::wire::WorkerEventsRequest {
+                    &remora_claude_remote_control::wire::WorkerEventsRequest {
                         worker_epoch,
                         events,
                     },
@@ -534,7 +534,7 @@ async fn run_worker(base_url: Option<Url>, command: WorkerCommand) -> Result<()>
                 .worker_delivery_ack(
                     &base.session_base_url,
                     &token,
-                    &alleycat_claude_remote_control::wire::WorkerDeliveryAckRequest {
+                    &remora_claude_remote_control::wire::WorkerDeliveryAckRequest {
                         worker_epoch,
                         updates,
                     },
@@ -584,12 +584,12 @@ async fn run_raw(base_url: Option<Url>, args: RawArgs) -> Result<()> {
         .map(serde_json::from_str::<Value>)
         .transpose()?;
     let beta = match args.beta.as_str() {
-        "environments" => alleycat_claude_remote_control::RequestBeta::Environments,
-        "managed-agents" => alleycat_claude_remote_control::RequestBeta::ManagedAgents,
+        "environments" => remora_claude_remote_control::RequestBeta::Environments,
+        "managed-agents" => remora_claude_remote_control::RequestBeta::ManagedAgents,
         "both" | "remote-control-and-managed-agents" => {
-            alleycat_claude_remote_control::RequestBeta::RemoteControlAndManagedAgents
+            remora_claude_remote_control::RequestBeta::RemoteControlAndManagedAgents
         }
-        "remote-control" | "ccr-byoc" => alleycat_claude_remote_control::RequestBeta::RemoteControl,
+        "remote-control" | "ccr-byoc" => remora_claude_remote_control::RequestBeta::RemoteControl,
         other => bail!("unknown beta set: {other}"),
     };
     let response: Value = client
@@ -636,7 +636,7 @@ async fn handle_tui_line(base_url: Option<Url>, line: &str) -> Result<()> {
     }
     expand_tui_aliases(&mut tokens);
     let mut argv = Vec::with_capacity(tokens.len() + 1);
-    argv.push("alleycat-claude-remote-control".to_string());
+    argv.push("remora-claude-remote-control".to_string());
     argv.extend(tokens);
     let cli = match Cli::try_parse_from(argv) {
         Ok(cli) => cli,
@@ -792,8 +792,8 @@ fn yes_no(value: bool) -> &'static str {
 
 #[derive(Debug, Serialize)]
 struct AuthStatusOutput {
-    access_token_source: alleycat_claude_remote_control::AccessTokenSource,
-    credential_backend: alleycat_claude_remote_control::CredentialBackend,
+    access_token_source: remora_claude_remote_control::AccessTokenSource,
+    credential_backend: remora_claude_remote_control::CredentialBackend,
     has_access_token: bool,
     has_organization_uuid: bool,
     trusted_device_token_present: bool,
@@ -825,7 +825,7 @@ mod tests {
         let mut tokens = split_tui_line(line).unwrap();
         expand_tui_aliases(&mut tokens);
         let mut argv = Vec::with_capacity(tokens.len() + 1);
-        argv.push("alleycat-claude-remote-control".to_string());
+        argv.push("remora-claude-remote-control".to_string());
         argv.extend(tokens);
         Cli::try_parse_from(argv).unwrap_or_else(|err| panic!("{line:?} did not parse: {err}"));
     }

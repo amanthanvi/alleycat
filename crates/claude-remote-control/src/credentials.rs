@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::fs;
+#[cfg(target_os = "macos")]
 use tokio::process::Command;
 
 use crate::api::{AuthRefreshCallback, BridgeAuth};

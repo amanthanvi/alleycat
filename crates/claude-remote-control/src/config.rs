@@ -6,7 +6,7 @@ pub const ENVIRONMENTS_BETA: &str = "environments-2025-11-01";
 pub const MANAGED_AGENTS_BETA: &str = "managed-agents-2026-04-01";
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub const DEFAULT_USER_AGENT: &str =
-    concat!("alleycat-claude-remote-control/", env!("CARGO_PKG_VERSION"));
+    concat!("remora-claude-remote-control/", env!("CARGO_PKG_VERSION"));
 pub const DEFAULT_RUNNER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const CLAUDE_CODE_REMOTE_TRUE: &str = "true";

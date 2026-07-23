@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stdio smoke: drives `alleycat-claude-bridge` against the real `claude`
+# Stdio smoke: drives `remora-claude-bridge` against the real `claude`
 # CLI over stdin/stdout. Run from the repo root:
 #
 #   ./crates/claude-bridge/tests/smoke/stdio_smoke.sh
@@ -23,8 +23,8 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-cargo build -q -p alleycat-claude-bridge
-BRIDGE_BIN="$ROOT/target/debug/alleycat-claude-bridge"
+cargo build -q -p remora-claude-bridge
+BRIDGE_BIN="$ROOT/target/debug/remora-claude-bridge"
 [ -x "$BRIDGE_BIN" ] || { echo "FAIL: bridge binary not at $BRIDGE_BIN"; exit 1; }
 echo "bridge: $BRIDGE_BIN"
 

@@ -82,7 +82,7 @@ jobs:
           test "$(git -C .upstream/codex rev-parse HEAD)" = "$CODEX_SCHEMA_REV"
           test -d "$BRIDGE_CONFORMANCE_CODEX_SCHEMA_DIR"
           cargo fetch --locked
-          cargo test --locked --frozen --package alleycat-bridge-conformance
+          cargo test --locked --frozen --package remora-bridge-conformance
 
   build:
     needs: [validate, validate-codex-schema]

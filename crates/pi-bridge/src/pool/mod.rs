@@ -16,7 +16,7 @@
 //!   progress) are never evicted — over-cap acquires fail with
 //!   [`PoolError::Capacity`] in that case.
 //!
-//! The bookkeeping lives in [`alleycat_bridge_core::pool::ProcessPool`]; this
+//! The bookkeeping lives in [`remora_bridge_core::pool::ProcessPool`]; this
 //! module wraps it with pi-specific spawn config so callers don't have to
 //! re-implement the eviction / capacity loop.
 
@@ -27,11 +27,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::pool::ProcessPool;
-pub use alleycat_bridge_core::pool::{
-    DEFAULT_IDLE_TTL, DEFAULT_MAX_PROCESSES, PoolError, ThreadId,
-};
-use alleycat_bridge_core::{LocalLauncher, ProcessLauncher};
+use remora_bridge_core::pool::ProcessPool;
+pub use remora_bridge_core::pool::{DEFAULT_IDLE_TTL, DEFAULT_MAX_PROCESSES, PoolError, ThreadId};
+use remora_bridge_core::{LocalLauncher, ProcessLauncher};
 use uuid::Uuid;
 
 pub use pi_protocol::*;
@@ -65,7 +63,7 @@ impl PiPool {
 
     /// Build a pool that launches `pi-coding-agent` through `launcher` with
     /// the default cap + idle TTL. Daemon path uses `Arc::new(LocalLauncher)`;
-    /// Litter substitutes `Arc::new(SshLauncher::new(...))`.
+    /// Remora substitutes `Arc::new(SshLauncher::new(...))`.
     pub fn with_launcher(pi_bin: impl Into<PathBuf>, launcher: Arc<dyn ProcessLauncher>) -> Self {
         Self::with_launcher_and_limits(pi_bin, launcher, DEFAULT_MAX_PROCESSES, DEFAULT_IDLE_TTL)
     }

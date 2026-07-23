@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use alleycat_codex_proto as p;
+use remora_codex_proto as p;
 use serde_json::json;
 
 use crate::state::ConnectionState;
@@ -154,7 +154,7 @@ mod tests {
     struct NoopIndex;
 
     #[async_trait::async_trait]
-    impl alleycat_bridge_core::ThreadIndexHandle<ClaudeSessionRef> for NoopIndex {
+    impl remora_bridge_core::ThreadIndexHandle<ClaudeSessionRef> for NoopIndex {
         async fn lookup(&self, _: &str) -> Option<crate::state::IndexEntry> {
             None
         }

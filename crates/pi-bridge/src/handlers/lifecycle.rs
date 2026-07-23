@@ -11,7 +11,7 @@ use crate::codex_proto as p;
 use crate::state::ConnectionState;
 
 /// Bridge user agent string included in `initialize` responses.
-pub const USER_AGENT: &str = concat!("alleycat-pi-bridge/", env!("CARGO_PKG_VERSION"));
+pub const USER_AGENT: &str = concat!("remora-pi-bridge/", env!("CARGO_PKG_VERSION"));
 
 /// Default codex_home for the bridge: `$XDG_CONFIG_HOME/codex/pi-bridge` on
 /// Linux, equivalent on macOS/Windows. Can be overridden by the caller of

@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use alleycat_bridge_core::{
+use anyhow::{Context, bail};
+use rand::RngCore;
+use remora_bridge_core::{
     ChildProcess, HarnessKind, HarnessLaunchReceipt, LaunchEnvironment, LaunchEnvironmentResolver,
     LocalLauncher, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode, UserEnvironmentLauncher,
     probe_harness, resolve_harness_executable, shutdown_owned_child,
 };
-use anyhow::{Context, bail};
-use rand::RngCore;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
@@ -222,7 +222,7 @@ fn reject_unsafe_owned_overrides(env: &LaunchEnvironment) -> anyhow::Result<()> 
 }
 
 async fn verify_serve_capabilities(
-    executable: &alleycat_bridge_core::ResolvedExecutable,
+    executable: &remora_bridge_core::ResolvedExecutable,
     env: &LaunchEnvironment,
 ) -> anyhow::Result<()> {
     let output = probe_harness(

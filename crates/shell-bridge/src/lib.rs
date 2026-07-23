@@ -1,4 +1,4 @@
-//! `alleycat-shell-bridge` — JSON-RPC shell sessions over PTY-backed child
+//! `remora-shell-bridge` — JSON-RPC shell sessions over PTY-backed child
 //! processes.
 
 pub mod bridge;

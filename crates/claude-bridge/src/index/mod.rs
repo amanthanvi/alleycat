@@ -20,14 +20,14 @@ use serde::{Deserialize, Serialize};
 
 pub use claude_session_scan::{ClaudeSessionInfo, claude_projects_dir, list_all};
 
-use alleycat_bridge_core::Hydrator;
-pub use alleycat_bridge_core::{
+use remora_bridge_core::Hydrator;
+pub use remora_bridge_core::{
     IndexEntry as CoreIndexEntry, ListFilter, ListPage, ListSort, ThreadIndex as CoreThreadIndex,
 };
-use alleycat_codex_proto::{SessionSource, Thread, ThreadSourceKind, ThreadStatus};
+use remora_codex_proto::{SessionSource, Thread, ThreadSourceKind, ThreadStatus};
 
 /// Bridge CLI version string baked into `Thread.cli_version`.
-pub const CLI_VERSION: &str = concat!("alleycat-claude-bridge/", env!("CARGO_PKG_VERSION"));
+pub const CLI_VERSION: &str = concat!("remora-claude-bridge/", env!("CARGO_PKG_VERSION"));
 
 /// Claude-specific metadata for an [`IndexEntry`]. Flattens into the row's top
 /// level so the on-disk shape matches the pre-refactor `claudeSessionPath` /
@@ -91,7 +91,7 @@ pub fn entry_to_thread(entry: &IndexEntry) -> Thread {
         thread_source: None,
         agent_nickname: None,
         agent_role: None,
-        git_info: alleycat_bridge_core::git_info_for_cwd(&entry.cwd),
+        git_info: remora_bridge_core::git_info_for_cwd(&entry.cwd),
         name: entry.name.clone(),
         turns: Vec::new(),
     }
@@ -152,7 +152,7 @@ pub async fn open_and_hydrate(codex_home: &Path) -> Result<Arc<CoreThreadIndex<C
 }
 
 /// Compat shim. Today's daemon calls
-/// `alleycat_claude_bridge::index::ThreadIndex::open_and_hydrate(&codex_home)`
+/// `remora_claude_bridge::index::ThreadIndex::open_and_hydrate(&codex_home)`
 /// and assigns the result to an `Arc<dyn ThreadIndexHandle<ClaudeSessionRef>>`.
 /// The shim preserves the spelling so the daemon keeps compiling — it forwards
 /// to [`CoreThreadIndex::open_and_hydrate`] with [`ClaudeHydrator`].

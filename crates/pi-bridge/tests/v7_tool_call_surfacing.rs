@@ -17,12 +17,12 @@ mod support;
 
 use std::time::Duration;
 
-use alleycat_pi_bridge::codex_proto::{
+use remora_pi_bridge::codex_proto::{
     CommandExecutionStatus, McpToolCallStatus, ServerNotification, ThreadItem,
 };
-use alleycat_pi_bridge::pool::pi_protocol::{PiEvent, PromptCmd, RpcCommand};
-use alleycat_pi_bridge::pool::process::PiProcessHandle;
-use alleycat_pi_bridge::translate::events::EventTranslatorState;
+use remora_pi_bridge::pool::pi_protocol::{PiEvent, PromptCmd, RpcCommand};
+use remora_pi_bridge::pool::process::PiProcessHandle;
+use remora_pi_bridge::translate::events::EventTranslatorState;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::timeout;
@@ -78,13 +78,13 @@ async fn bash_and_mcp_tool_calls_surface_distinct_codex_items() {
                 "type": "tool_execution_start",
                 "toolCallId": MCP_CALL,
                 "toolName": "github__list_repos",
-                "args": {"org": "alleycat-labs"},
+                "args": {"org": "remora-labs"},
             }),
             json!({
                 "type": "tool_execution_update",
                 "toolCallId": MCP_CALL,
                 "toolName": "github__list_repos",
-                "args": {"org": "alleycat-labs"},
+                "args": {"org": "remora-labs"},
                 "partialResult": {"message": "querying GitHub API"},
             }),
             json!({
@@ -196,7 +196,7 @@ async fn bash_and_mcp_tool_calls_surface_distinct_codex_items() {
             assert_eq!(server, "github");
             assert_eq!(tool, "list_repos");
             assert_eq!(*status, McpToolCallStatus::InProgress);
-            assert_eq!(arguments["org"], "alleycat-labs");
+            assert_eq!(arguments["org"], "remora-labs");
         }
         _ => unreachable!(),
     }

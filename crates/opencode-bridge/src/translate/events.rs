@@ -1,4 +1,4 @@
-use alleycat_bridge_core::Conn;
+use remora_bridge_core::Conn;
 use serde_json::{Value, json};
 
 use crate::approval;
@@ -1014,7 +1014,7 @@ fn file_diffs_to_unified(diffs: &Value) -> String {
 /// pub crate-wide just for one call site).
 fn binding_to_thread(binding: &crate::index::OpencodeBinding) -> Value {
     let path = format!("opencode://session/{}", binding.session_id);
-    let git_info = alleycat_bridge_core::git_info_for_cwd(&binding.directory)
+    let git_info = remora_bridge_core::git_info_for_cwd(&binding.directory)
         .and_then(|info| serde_json::to_value(info).ok())
         .unwrap_or(Value::Null);
     json!({
@@ -1032,7 +1032,7 @@ fn binding_to_thread(binding: &crate::index::OpencodeBinding) -> Value {
         "status": {"type": "notLoaded"},
         "path": path,
         "cwd": binding.directory,
-        "cliVersion": concat!("alleycat-opencode-bridge/", env!("CARGO_PKG_VERSION")),
+        "cliVersion": concat!("remora-opencode-bridge/", env!("CARGO_PKG_VERSION")),
         "source": "appServer",
         "threadSource": null,
         "gitInfo": git_info,

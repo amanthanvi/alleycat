@@ -1,5 +1,5 @@
 [package]
-name = "alleycat-devin-bridge"
+name = "remora-devin-bridge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,8 @@ description = "Devin-specific bridge: wraps the generic ACP bridge but overrides
 publish = false
 
 [dependencies]
-alleycat-acp-bridge = { workspace = true }
-alleycat-bridge-core = { workspace = true }
+remora-acp-bridge = { workspace = true }
+remora-bridge-core = { workspace = true }
 anyhow.workspace = true
 async-trait.workspace = true
 rusqlite = { version = "0.31", features = ["bundled"] }

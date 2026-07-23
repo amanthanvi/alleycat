@@ -1,5 +1,5 @@
-use alleycat_bridge_conformance::{Frame, FrameKind, TargetId, upstream_schema};
-use alleycat_codex_proto::WarningNotification;
+use remora_bridge_conformance::{Frame, FrameKind, TargetId, upstream_schema};
+use remora_codex_proto::WarningNotification;
 use serde_json::json;
 
 #[test]

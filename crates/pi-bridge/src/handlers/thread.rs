@@ -194,7 +194,7 @@ pub async fn handle_thread_start(
         .additional
         .get("effort")
         .and_then(parse_effort)
-        .or_else(|| Some(p::ReasoningEffort::High));
+        .or(Some(p::ReasoningEffort::High));
 
     Ok(p::ThreadStartResponse {
         thread: thread_from_entry(&entry),
@@ -316,7 +316,7 @@ pub async fn handle_thread_resume(
             .additional
             .get("effort")
             .and_then(parse_effort)
-            .or_else(|| Some(p::ReasoningEffort::High)),
+            .or(Some(p::ReasoningEffort::High)),
     })
 }
 
@@ -505,15 +505,15 @@ pub async fn handle_thread_set_name(
         return Err(ThreadError::NotFound(params.thread_id.clone()));
     }
 
-    if let Some(name) = stored.as_deref() {
-        if let Some(handle) = state.pi_pool().get(&params.thread_id).await {
-            let _ = handle
-                .send_request(pi::RpcCommand::SetSessionName(pi::SetSessionNameCmd {
-                    id: None,
-                    name: name.to_string(),
-                }))
-                .await;
-        }
+    if let Some(name) = stored.as_deref()
+        && let Some(handle) = state.pi_pool().get(&params.thread_id).await
+    {
+        let _ = handle
+            .send_request(pi::RpcCommand::SetSessionName(pi::SetSessionNameCmd {
+                id: None,
+                name: name.to_string(),
+            }))
+            .await;
     }
 
     if state.should_emit("thread/name/updated") {
@@ -682,7 +682,7 @@ pub async fn handle_thread_list(
         key: params.sort_key.unwrap_or(p::ThreadSortKey::CreatedAt),
         direction: params.sort_direction.unwrap_or(SortDirection::Desc),
     };
-    let limit = alleycat_bridge_core::resolve_list_limit(params.limit);
+    let limit = remora_bridge_core::resolve_list_limit(params.limit);
     // `use_state_db_only` is accepted but inherently true for this bridge:
     // pi-bridge always lists from the threads.json index, and scan-and-repair
     // hydration runs once at startup (see `index::open_and_hydrate`), not
@@ -699,7 +699,7 @@ pub async fn handle_thread_list(
     let backwards_cursor = page
         .data
         .first()
-        .map(|e| alleycat_bridge_core::encode_backwards_cursor(e, sort));
+        .map(|e| remora_bridge_core::encode_backwards_cursor(e, sort));
 
     // Enrich entries that pi has actually spawned right now so codex
     // clients can render the correct badge without a follow-up
@@ -934,12 +934,12 @@ fn thread_from_entry(entry: &IndexEntry) -> p::Thread {
                 .into_owned(),
         ),
         cwd: entry.cwd.clone(),
-        cli_version: format!("alleycat-pi-bridge/{}", env!("CARGO_PKG_VERSION")),
+        cli_version: format!("remora-pi-bridge/{}", env!("CARGO_PKG_VERSION")),
         source: source_kind_to_session_source(entry.source),
         thread_source: None,
         agent_nickname: None,
         agent_role: None,
-        git_info: alleycat_bridge_core::git_info_for_cwd(&entry.cwd),
+        git_info: remora_bridge_core::git_info_for_cwd(&entry.cwd),
         name: entry.name.clone(),
         turns: Vec::new(),
     }
@@ -1202,7 +1202,7 @@ mod tests {
 
     async fn dummy_state() -> (
         Arc<ConnectionState>,
-        mpsc::UnboundedReceiver<alleycat_bridge_core::session::Sequenced>,
+        mpsc::UnboundedReceiver<remora_bridge_core::session::Sequenced>,
     ) {
         let dir = tempfile::tempdir().unwrap();
         let index = crate::index::ThreadIndex::open_at(dir.path().join("threads.json"))

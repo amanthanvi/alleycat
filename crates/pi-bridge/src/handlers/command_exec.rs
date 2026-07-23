@@ -27,10 +27,10 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use alleycat_bridge_core::{ChildProcess, ProcessRole, ProcessSpec, StdioMode};
 use anyhow::Result;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use remora_bridge_core::{ChildProcess, ProcessRole, ProcessSpec, StdioMode};
 use tokio::io::AsyncReadExt;
 use tokio::sync::oneshot;
 use tokio::time::timeout;

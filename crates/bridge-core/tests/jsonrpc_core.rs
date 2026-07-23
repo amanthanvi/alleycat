@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use alleycat_bridge_core::{
+use async_trait::async_trait;
+use remora_bridge_core::{
     Bridge, Conn, InboundMessage, JsonRpcError, JsonRpcMessage, JsonRpcNotification,
     JsonRpcRequest, JsonRpcVersion, RequestId,
     framing::{read_json_line, write_json_line},
     server,
 };
-use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::io::BufReader;
 
@@ -120,7 +120,7 @@ async fn connection_honors_opt_out_notifications() {
             .unwrap()
             .unwrap()
             .unwrap();
-    let methods = vec![
+    let methods = [
         first
             .get("method")
             .and_then(Value::as_str)

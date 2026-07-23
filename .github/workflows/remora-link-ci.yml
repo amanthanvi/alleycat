@@ -41,15 +41,12 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Fetch the locked dependency graph
         run: cargo fetch --locked
-      - name: Lint the shipped Remora Link core
+      - name: Lint the full Remora Link workspace
         env:
           BRIDGE_CONFORMANCE_SKIP_UPSTREAM_SCHEMA: "1"
         run: >-
           cargo clippy --locked --frozen
-          --package remora-link
-          --package alleycat
-          --package alleycat-bridge-core
-          --no-deps
+          --workspace --all-targets --all-features
           -- -D warnings
       - name: Install pinned actionlint
         shell: bash
@@ -135,7 +132,7 @@ jobs:
           BRIDGE_CONFORMANCE_CODEX_SCHEMA_DIR: ${{ github.workspace }}/.upstream/codex/codex-rs/app-server-protocol/schema/json/v2
         run: >-
           cargo test --locked --frozen
-          --package alleycat-bridge-conformance
+          --package remora-bridge-conformance
           --test pinned_schema
 
   compile:

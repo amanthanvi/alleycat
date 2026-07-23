@@ -9,15 +9,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::server::{Bridge, Conn};
-use alleycat_bridge_core::{
-    JsonRpcError, LocalLauncher, ProcessLauncher, ThreadIndex as CoreThreadIndex,
-    UserEnvironmentLauncher, error_codes,
-};
-use alleycat_codex_proto as p;
 use anyhow::Result;
 use async_trait::async_trait;
 use dashmap::DashMap;
+use remora_bridge_core::server::{Bridge, Conn};
+use remora_bridge_core::{
+    JsonRpcError, LocalLauncher, ProcessLauncher, ThreadIndex as CoreThreadIndex,
+    UserEnvironmentLauncher, error_codes,
+};
+use remora_codex_proto as p;
 use serde_json::Value;
 
 use crate::handlers;
@@ -27,7 +27,7 @@ use crate::state::{ConnectionState, ThreadDefaults};
 
 /// Concrete handle type stored on the bridge. Uses [`crate::state::ThreadIndexHandle`]
 /// (a marker subtrait of `bridge_core::ThreadIndexHandle<ClaudeSessionRef>`)
-/// so the daemon's `Arc<dyn alleycat_claude_bridge::state::ThreadIndexHandle>`
+/// so the daemon's `Arc<dyn remora_claude_bridge::state::ThreadIndexHandle>`
 /// flows in directly through the compat shim.
 pub type ThreadIndexHandle = Arc<dyn crate::state::ThreadIndexHandle>;
 
@@ -41,7 +41,7 @@ pub struct ClaudeBridge {
     pool: Arc<ClaudePool>,
     thread_index: ThreadIndexHandle,
     codex_home: PathBuf,
-    /// Held so embedders (Litter) can swap launchers; the pool already has its
+    /// Held so embedders (Remora) can swap launchers; the pool already has its
     /// own `Arc<dyn ProcessLauncher>` clone for spawning agent processes.
     /// `command_exec` will route through this when migrated.
     #[allow(dead_code)]
@@ -213,15 +213,15 @@ impl ClaudeBridgeBuilder {
     /// Builder-set values stay; env vars only fill in fields the caller
     /// hasn't already set explicitly.
     pub fn from_env(mut self) -> Self {
-        if self.agent_bin.is_none() {
-            if let Some(bin) = std::env::var_os("CLAUDE_BRIDGE_CLAUDE_BIN") {
-                self.agent_bin = Some(PathBuf::from(bin));
-            }
+        if self.agent_bin.is_none()
+            && let Some(bin) = std::env::var_os("CLAUDE_BRIDGE_CLAUDE_BIN")
+        {
+            self.agent_bin = Some(PathBuf::from(bin));
         }
-        if self.codex_home.is_none() {
-            if let Some(home) = std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {
-                self.codex_home = Some(PathBuf::from(home));
-            }
+        if self.codex_home.is_none()
+            && let Some(home) = std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty())
+        {
+            self.codex_home = Some(PathBuf::from(home));
         }
         if let Ok(value) = std::env::var("CLAUDE_BRIDGE_BYPASS_PERMISSIONS") {
             self.bypass_permissions = matches!(

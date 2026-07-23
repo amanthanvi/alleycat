@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::fs;
 
-use alleycat_codex_proto::{
+use remora_codex_proto::{
     CollabAgentState, CollabAgentStatus, CollabAgentTool, CollabAgentToolCallStatus,
     CommandExecutionStatus, DynamicToolCallStatus, McpToolCallError, McpToolCallResult,
     McpToolCallStatus, PatchApplyStatus, ThreadItem, Turn, TurnStatus, UserInput,
@@ -238,7 +238,7 @@ impl TurnBuilder {
         self.turns.push(Turn {
             id: format!("turn_{}", self.turns.len()),
             items: std::mem::take(&mut self.current_items),
-            items_view: alleycat_codex_proto::default_items_view(),
+            items_view: remora_codex_proto::default_items_view(),
             status: TurnStatus::Completed,
             error: None,
             started_at: self.current_started_at.take(),
@@ -295,7 +295,7 @@ fn user_message_to_item(content: &Value, ts: i64, turn_index: usize) -> ThreadIt
 /// strings (e.g. claude's "user rejected this tool use" canned message),
 /// objects shaped like anthropic content blocks, arrays of those, and
 /// arbitrary structured payloads all need to land as one of those two
-/// shapes — otherwise litter's typed deserializer rejects the whole
+/// shapes — otherwise remora's typed deserializer rejects the whole
 /// `thread/resume` response.
 fn normalize_dynamic_tool_call_output(value: &Value) -> Vec<Value> {
     match value {
@@ -306,16 +306,16 @@ fn normalize_dynamic_tool_call_output(value: &Value) -> Vec<Value> {
             .collect(),
         Value::Object(obj) => {
             // Anthropic-style text block: `{type: "text", text: "..."}`.
-            if obj.get("type").and_then(Value::as_str) == Some("text") {
-                if let Some(text) = obj.get("text").and_then(Value::as_str) {
-                    return vec![serde_json::json!({"type": "inputText", "text": text})];
-                }
+            if obj.get("type").and_then(Value::as_str) == Some("text")
+                && let Some(text) = obj.get("text").and_then(Value::as_str)
+            {
+                return vec![serde_json::json!({"type": "inputText", "text": text})];
             }
             // Anthropic-style image block: `{type: "image", source: {...}}`.
-            if obj.get("type").and_then(Value::as_str) == Some("image") {
-                if let Some(url) = obj.get("source").and_then(image_source_to_data_url) {
-                    return vec![serde_json::json!({"type": "inputImage", "imageUrl": url})];
-                }
+            if obj.get("type").and_then(Value::as_str) == Some("image")
+                && let Some(url) = obj.get("source").and_then(image_source_to_data_url)
+            {
+                return vec![serde_json::json!({"type": "inputImage", "imageUrl": url})];
             }
             // Already-codex-shaped: pass through unchanged.
             if matches!(
@@ -422,14 +422,14 @@ fn complete_tool_item(
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             let mut combined = stdout.unwrap_or(inline);
-            if let Some(stderr) = stderr {
-                if !stderr.is_empty() {
-                    if !combined.is_empty() && !combined.ends_with('\n') {
-                        combined.push('\n');
-                    }
-                    combined.push_str("[stderr] ");
-                    combined.push_str(&stderr);
+            if let Some(stderr) = stderr
+                && !stderr.is_empty()
+            {
+                if !combined.is_empty() && !combined.ends_with('\n') {
+                    combined.push('\n');
                 }
+                combined.push_str("[stderr] ");
+                combined.push_str(&stderr);
             }
             *aggregated_output = Some(cap_aggregated_output_disk(combined));
             *status = if is_error || interrupted {
@@ -1262,7 +1262,7 @@ mod tests {
         // Claude returns a bare string when the user rejects a tool use;
         // codex's `DynamicToolCallOutputContentItem` requires the tagged
         // `inputText` shape or `thread/resume` deserialization fails on
-        // the litter side.
+        // the remora side.
         let out = normalize_dynamic_tool_call_output(&json!(
             "Error: The user doesn't want to proceed with this tool use."
         ));
@@ -1397,7 +1397,7 @@ mod tests {
                 "name": "ios-reader",
                 "subagent_type": "Explore",
                 "description": "find files",
-                "team_name": "litter-ios",
+                "team_name": "remora-ios",
                 "run_in_background": true
             }),
         );
@@ -1406,7 +1406,7 @@ mod tests {
                 let state = agents_states.get("subagent-agent-1").expect("agent state");
                 assert_eq!(
                     state.message.as_deref(),
-                    Some("ios-reader · Explore: find files · team litter-ios · background")
+                    Some("ios-reader · Explore: find files · team remora-ios · background")
                 );
             }
             other => panic!("expected CollabAgentToolCall, got {other:?}"),

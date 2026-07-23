@@ -2,19 +2,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use alleycat_codex_proto as p;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use remora_codex_proto as p;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::fs;
 
-pub use alleycat_bridge_core::{
+pub use remora_bridge_core::{
     IndexEntry as CoreIndexEntry, ListFilter, ListPage, ListSort, ThreadIndex as CoreThreadIndex,
 };
 
-pub const CLI_VERSION: &str = concat!("alleycat-droid-bridge/", env!("CARGO_PKG_VERSION"));
+pub const CLI_VERSION: &str = concat!("remora-droid-bridge/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +71,7 @@ impl Default for DroidHydrator {
 }
 
 #[async_trait]
-impl alleycat_bridge_core::Hydrator<DroidSessionRef> for DroidHydrator {
+impl remora_bridge_core::Hydrator<DroidSessionRef> for DroidHydrator {
     async fn scan(&self) -> Result<Vec<IndexEntry>> {
         Ok(self
             .scan_sessions()
@@ -132,7 +132,7 @@ pub async fn list_all_from_root(root: &Path) -> Vec<DroidSessionInfo> {
             sessions.extend(list_sessions_from_dir(&entry.path()).await);
         }
     }
-    sessions.sort_by(|a, b| b.modified.cmp(&a.modified));
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.modified));
     sessions
 }
 
@@ -212,7 +212,7 @@ pub fn thread_from_entry(entry: &IndexEntry) -> p::Thread {
         thread_source: None,
         agent_nickname: None,
         agent_role: None,
-        git_info: alleycat_bridge_core::git_info_for_cwd(&entry.cwd),
+        git_info: remora_bridge_core::git_info_for_cwd(&entry.cwd),
         name: entry.name.clone(),
         turns: Vec::new(),
     }
@@ -876,7 +876,7 @@ fn push_turn(
     turns.push(p::Turn {
         id: format!("turn_{}", turns.len()),
         items: std::mem::take(current_items),
-        items_view: alleycat_codex_proto::default_items_view(),
+        items_view: remora_codex_proto::default_items_view(),
         status: p::TurnStatus::Completed,
         error: None,
         started_at: current_started_at.take(),
@@ -1054,10 +1054,10 @@ fn source_kind_to_session_source(kind: p::ThreadSourceKind) -> p::SessionSource 
 }
 
 fn expand_tilde(input: &str) -> PathBuf {
-    if input == "~" {
-        if let Some(home) = directories::UserDirs::new() {
-            return home.home_dir().to_path_buf();
-        }
+    if input == "~"
+        && let Some(home) = directories::UserDirs::new()
+    {
+        return home.home_dir().to_path_buf();
     }
     if let Some(rest) = input.strip_prefix("~/")
         && let Some(home) = directories::UserDirs::new()
@@ -1091,20 +1091,17 @@ mod tests {
         let mut file = std::fs::File::create(&session_path).unwrap();
         writeln!(
             file,
-            "{}",
-            r#"{"type":"session_start","id":"abc","title":"hi","sessionTitle":"Greeting","cwd":"/Users/test/work"}"#
+            "{{\"type\":\"session_start\",\"id\":\"abc\",\"title\":\"hi\",\"sessionTitle\":\"Greeting\",\"cwd\":\"/Users/test/work\"}}"
         )
         .unwrap();
         writeln!(
             file,
-            "{}",
-            r#"{"type":"message","id":"u1","timestamp":"2026-05-09T22:52:02.922Z","message":{"role":"user","content":[{"type":"text","text":"hello droid"}]}}"#
+            "{{\"type\":\"message\",\"id\":\"u1\",\"timestamp\":\"2026-05-09T22:52:02.922Z\",\"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"text\",\"text\":\"hello droid\"}}]}}}}"
         )
         .unwrap();
         writeln!(
             file,
-            "{}",
-            r#"{"type":"message","id":"a1","timestamp":"2026-05-09T22:52:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#
+            "{{\"type\":\"message\",\"id\":\"a1\",\"timestamp\":\"2026-05-09T22:52:05.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"hi\"}}]}}}}"
         )
         .unwrap();
 

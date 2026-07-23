@@ -3,9 +3,9 @@
 ## Ownership boundary
 
 Remora Link owns the host product identity, release pipeline, secure pairing
-extensions, and Remora-specific integration seams. Alleycat remains the
-upstream transport and harness bridge. Remora Link wraps `alleycat::App`; it
-does not duplicate Alleycat's harness discovery, process supervision, or wire
+extensions, and Remora-specific integration seams. Remora remains the
+upstream transport and harness bridge. Remora Link wraps `remora::App`; it
+does not duplicate Remora's harness discovery, process supervision, or wire
 translation.
 
 Harnesses are always user-installed. The host may resolve an explicitly
@@ -16,7 +16,7 @@ installer, or another package-manager fallback on a user's behalf.
 
 ## Upstream-first, 30-day patch window
 
-For a generally useful Alleycat bug fix or hardening change:
+For a generally useful Remora bug fix or hardening change:
 
 1. Reproduce it in the maintenance fork and prepare focused tests.
 2. Open an upstream issue or pull request before carrying a divergent patch.
@@ -34,7 +34,7 @@ Actively exploited vulnerabilities may be patched immediately while following
 coordinated-disclosure and embargo requirements; the security exception must
 not disclose private vulnerability details in a public issue.
 
-The `Upstream sync` GitHub workflow fetches `dnakov/alleycat`, creates or
+The `Upstream sync` GitHub workflow fetches `dnakov/remora`, creates or
 updates a review branch, and opens a pull request. It never enables auto-merge
 or mutates the protected default branch. Every sync receives normal review and
 locked-build validation before merge. Repository owners must enable **Allow
@@ -58,8 +58,8 @@ formatting, pinned Codex schema conformance, and native Linux, macOS, and
 Windows compilation. Live external harness tests stay opt-in; CI compiles
 their targets but does not launch user-installed agents.
 
-Clippy denies warnings for the shipped Remora Link binary, the Alleycat host
-facade, and `alleycat-bridge-core`. It uses `--no-deps` because the inherited
+Clippy denies warnings for the shipped Remora Link binary, the Remora host
+facade, and `remora-bridge-core`. It uses `--no-deps` because the inherited
 bridge crates do not yet have a workspace-wide clean Clippy baseline. This is
 not a test exemption: every bridge package remains covered by locked, frozen
 workspace tests and all-target compile jobs. Broaden the Clippy gate to the
@@ -86,5 +86,5 @@ reconciliation remain provider-independent. Provider choice must not fork the
 mobile or harness protocol.
 
 The seam is documented here until a typed provider interface is introduced in
-Alleycat core. That future interface belongs beside endpoint construction; it
+Remora core. That future interface belongs beside endpoint construction; it
 must not leak into individual harness bridges.

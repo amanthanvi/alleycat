@@ -9,8 +9,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::session::{AttachKind, Session, SessionRegistry, SessionRegistryConfig};
-use alleycat_bridge_core::state::ServerRequestError;
+use remora_bridge_core::session::{AttachKind, Session, SessionRegistry, SessionRegistryConfig};
+use remora_bridge_core::state::ServerRequestError;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
@@ -86,8 +86,8 @@ async fn drift_when_cursor_predates_ring_floor() {
 
     let b = session.install_attachment(Some(0));
     assert!(matches!(
-        alleycat_bridge_core::session::AttachOutcome::DriftReload,
-        _outcome if matches!(b.outcome, alleycat_bridge_core::session::AttachOutcome::DriftReload)
+        remora_bridge_core::session::AttachOutcome::DriftReload,
+        _outcome if matches!(b.outcome, remora_bridge_core::session::AttachOutcome::DriftReload)
     ));
     assert!(b.backlog.is_empty());
 }
@@ -140,7 +140,7 @@ async fn outstanding_server_request_redelivered_on_reattach() {
     // with the original id and the handler that was awaiting `rx` resumes.
     assert!(session.resolve_pending(&req_id, Ok(json!({"decision": "decline"}))));
     let resolved = rx.try_recv().expect("resolved");
-    assert!(matches!(resolved, Ok(_)));
+    assert!(resolved.is_ok());
 }
 
 #[tokio::test]
@@ -198,7 +198,7 @@ async fn registry_resolve_attach_minted_session_is_fresh_even_with_resume() {
 
 #[tokio::test]
 async fn auto_resume_uses_server_tracked_cursor_when_no_resume_field() {
-    // The litter client today sends `Connect { v, token, agent }` with no
+    // The remora client today sends `Connect { v, token, agent }` with no
     // resume cursor. After an iroh disconnect + reconnect the server should
     // *still* replay anything its previous drainer didn't get to write,
     // by treating no-cursor + existing-session as auto-resume from
@@ -275,12 +275,12 @@ async fn auto_resume_picks_drift_when_buffer_overflowed() {
 }
 
 #[tokio::test]
-async fn enqueue_stamps_alleycat_seq_on_object_payloads() {
+async fn enqueue_stamps_remora_link_seq_on_object_payloads() {
     let session = Arc::new(Session::new("pi", "node-A".into(), 16, 1 << 20));
     let mut handle = session.install_attachment(None);
     let seq = session.enqueue(notif("turn/started"));
     let received = handle.live_rx.recv().await.unwrap();
-    assert_eq!(received.payload["_alleycat_seq"], seq);
+    assert_eq!(received.payload["_remora_link_seq"], seq);
     assert_eq!(received.payload["method"], "turn/started");
 }
 

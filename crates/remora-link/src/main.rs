@@ -1,4 +1,4 @@
-const APP: alleycat::App = alleycat::App {
+const APP: remora_host::App = remora_host::App {
     binary_name: "remora-link",
     qualifier: "com",
     organization: "remora",

@@ -7,13 +7,13 @@
 //! tiny and changes are rare.
 //!
 //! For tests that need full lookup/insert semantics, prefer
-//! `alleycat_pi_bridge::index::ThreadIndex::open_at(tempdir)` over copying
+//! `remora_pi_bridge::index::ThreadIndex::open_at(tempdir)` over copying
 //! `InMemoryThreadIndex` here too.
 
-use alleycat_bridge_core::{IndexEntry, ListFilter, ListPage, ListSort, ThreadIndexHandle};
-use alleycat_pi_bridge::PiSessionRef;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use remora_bridge_core::{IndexEntry, ListFilter, ListPage, ListSort, ThreadIndexHandle};
+use remora_pi_bridge::PiSessionRef;
 
 /// Silent no-op `ThreadIndexHandle<PiSessionRef>`. Construct with
 /// `Arc::new(NoopThreadIndex)`.

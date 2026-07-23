@@ -3,7 +3,7 @@
 //! bridge targets and diffs each bridge against the codex reference.
 //!
 //! Run with:
-//!   cargo test -p alleycat-bridge-conformance -- --ignored --nocapture
+//!   cargo test -p remora-bridge-conformance -- --ignored --nocapture
 //!
 //! Without prereqs (no codex, no pi/claude/opencode/droid CLIs, no API keys) the
 //! suite still passes — each test prints `skipped: <reason>` and exits.
@@ -14,7 +14,7 @@ use std::process::Command as StdCommand;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use alleycat_bridge_conformance::{
+use remora_bridge_conformance::{
     TargetId, Transcript, cache,
     diff::{self, ConformanceReport, Finding},
     method_surface::{self, ProbeContext},
@@ -218,6 +218,9 @@ async fn method_surface_runtime() {
 // helpers
 // ============================================================================
 
+// Test-only result: keeping the full transcript inline makes failure
+// inspection straightforward and has no production allocation impact.
+#[allow(clippy::large_enum_variant)]
 enum DriveOutcome {
     Ran(Transcript),
     Skipped(String),
@@ -293,10 +296,10 @@ async fn drive_with_options(
         )
         .await;
     }
-    if let Some(dir) = std::env::var_os("BRIDGE_CONFORMANCE_DUMP_DIR") {
-        if let Err(err) = dump_transcript(std::path::Path::new(&dir), &transcript) {
-            eprintln!("conformance({target}): dump failed: {err:#}");
-        }
+    if let Some(dir) = std::env::var_os("BRIDGE_CONFORMANCE_DUMP_DIR")
+        && let Err(err) = dump_transcript(std::path::Path::new(&dir), &transcript)
+    {
+        eprintln!("conformance({target}): dump failed: {err:#}");
     }
     DriveOutcome::Ran(transcript)
 }
@@ -350,7 +353,7 @@ async fn probe_method_surface(target: TargetId) -> DriveOutcome {
             "initialize",
             json!({
                 "clientInfo": {
-                    "name": format!("alleycat-bridge-conformance/method-surface/{}", target.label()),
+                    "name": format!("remora-bridge-conformance/method-surface/{}", target.label()),
                     "version": env!("CARGO_PKG_VERSION"),
                 },
                 "capabilities": { "experimentalApi": true },
@@ -403,8 +406,8 @@ async fn probe_method_surface(target: TargetId) -> DriveOutcome {
         process_id: None,
     };
     let probe_deadline = Duration::from_secs(5);
-    if let Some(thread_id) = ctx.thread_id.as_deref() {
-        if let Ok(seed) = handle
+    if let Some(thread_id) = ctx.thread_id.as_deref()
+        && let Ok(seed) = handle
             .client
             .request(
                 "turn/start",
@@ -417,17 +420,16 @@ async fn probe_method_surface(target: TargetId) -> DriveOutcome {
                 cfg.turn_deadline,
             )
             .await
-        {
-            let _ = handle
-                .client
-                .drain_notifications_until(&["turn/completed"], cfg.turn_deadline)
-                .await;
-            ctx.turn_id = seed
-                .response
-                .pointer("/result/turn/id")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string);
-        }
+    {
+        let _ = handle
+            .client
+            .drain_notifications_until(&["turn/completed"], cfg.turn_deadline)
+            .await;
+        ctx.turn_id = seed
+            .response
+            .pointer("/result/turn/id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
     }
 
     for method in method_surface::STANDARD_REQUEST_METHODS {
@@ -488,7 +490,7 @@ async fn probe_method_surface(target: TargetId) -> DriveOutcome {
 }
 
 async fn start_probe_process(
-    client: &mut alleycat_bridge_conformance::transport::JsonRpcClient,
+    client: &mut remora_bridge_conformance::transport::JsonRpcClient,
     ctx: &mut ProbeContext,
 ) -> anyhow::Result<()> {
     let process_id = format!(
@@ -515,7 +517,7 @@ async fn start_probe_process(
 }
 
 async fn cleanup_probe_process(
-    client: &mut alleycat_bridge_conformance::transport::JsonRpcClient,
+    client: &mut remora_bridge_conformance::transport::JsonRpcClient,
     ctx: &ProbeContext,
 ) {
     if let Some(process_id) = ctx.process_id.as_deref() {
@@ -530,7 +532,7 @@ async fn cleanup_probe_process(
 }
 
 async fn wait_probe_process(
-    client: &mut alleycat_bridge_conformance::transport::JsonRpcClient,
+    client: &mut remora_bridge_conformance::transport::JsonRpcClient,
     ctx: &ProbeContext,
 ) {
     if let Some(process_id) = ctx.process_id.as_deref() {
@@ -546,7 +548,7 @@ async fn wait_probe_process(
 
 fn dump_transcript(
     dir: &std::path::Path,
-    transcript: &alleycat_bridge_conformance::Transcript,
+    transcript: &remora_bridge_conformance::Transcript,
 ) -> anyhow::Result<()> {
     use std::io::Write;
     std::fs::create_dir_all(dir)?;
@@ -564,7 +566,7 @@ fn build_spawn(
     prereq: &Prereq,
     use_stable_cwd: bool,
 ) -> anyhow::Result<TargetSpawn> {
-    // Stable cwd lives at ~/.cache/alleycat-bridge-conformance/cwd/. Reusing
+    // Stable cwd lives at ~/.cache/remora-bridge-conformance/cwd/. Reusing
     // it run-to-run lets us also reuse the per-target thread id (cwd is part
     // of every bridge's thread-id binding). On a machine without $HOME we
     // fall back to a tempdir, which means thread ids won't be reusable —
@@ -586,43 +588,43 @@ fn build_spawn(
         },
         (TargetId::Pi, Prereq::Pi { bin }) => TargetSpawn {
             target,
-            bridge_bin: Some(workspace_bin("alleycat-pi-bridge")?),
+            bridge_bin: Some(workspace_bin("remora-pi-bridge")?),
             backend_bin: Some(bin.clone()),
             cwd,
         },
         (TargetId::Amp, Prereq::Amp { bin }) => TargetSpawn {
             target,
-            bridge_bin: Some(workspace_bin("alleycat-amp-bridge")?),
+            bridge_bin: Some(workspace_bin("remora-amp-bridge")?),
             backend_bin: Some(bin.clone()),
             cwd,
         },
         (TargetId::Claude, Prereq::Claude { bin }) => TargetSpawn {
             target,
-            bridge_bin: Some(workspace_bin("alleycat-claude-bridge")?),
+            bridge_bin: Some(workspace_bin("remora-claude-bridge")?),
             backend_bin: Some(bin.clone()),
             cwd,
         },
         (TargetId::Opencode, Prereq::Opencode { bin }) => TargetSpawn {
             target,
-            bridge_bin: Some(workspace_bin("alleycat-opencode-bridge")?),
+            bridge_bin: Some(workspace_bin("remora-opencode-bridge")?),
             backend_bin: Some(bin.clone()),
             cwd,
         },
         (TargetId::Droid, Prereq::Droid { bin }) => TargetSpawn {
             target,
-            bridge_bin: Some(workspace_bin("alleycat-droid-bridge")?),
+            bridge_bin: Some(workspace_bin("remora-droid-bridge")?),
             backend_bin: Some(bin.clone()),
             cwd,
         },
         (TargetId::Hermes, Prereq::Hermes { bin }) => TargetSpawn {
             target,
-            bridge_bin: Some(workspace_bin("alleycat-hermes-bridge")?),
+            bridge_bin: Some(workspace_bin("remora-hermes-bridge")?),
             backend_bin: Some(bin.clone()),
             cwd,
         },
         (TargetId::Acp, Prereq::Acp { bin }) => TargetSpawn {
             target,
-            bridge_bin: Some(workspace_bin("alleycat-acp-bridge")?),
+            bridge_bin: Some(workspace_bin("remora-acp-bridge")?),
             backend_bin: Some(bin.clone()),
             cwd,
         },

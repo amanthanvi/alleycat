@@ -1,6 +1,6 @@
-//! `alleycat-acp-bridge` binary entry point.
+//! `remora-acp-bridge` binary entry point.
 //!
-//! Defaults to stdio. With `--socket <path>` (or `ALLEYCAT_BRIDGE_SOCKET`),
+//! Defaults to stdio. With `--socket <path>` (or `REMORA_BRIDGE_SOCKET`),
 //! listens on a Unix socket. The bridge is constructed via
 //! [`AcpBridgeBuilder`] and served through `bridge_core::serve_*` helpers.
 
@@ -8,10 +8,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use alleycat_acp_bridge::AcpBridge;
-use alleycat_bridge_core::serve_stdio;
+use remora_acp_bridge::AcpBridge;
+use remora_bridge_core::serve_stdio;
 #[cfg(unix)]
-use alleycat_bridge_core::{ServerOptions, serve_unix};
+use remora_bridge_core::{ServerOptions, serve_unix};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
         .init();
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
-        "alleycat-acp-bridge starting"
+        "remora-acp-bridge starting"
     );
 
     let bridge = AcpBridge::builder().from_env().build().await?;
@@ -62,5 +62,5 @@ fn socket_arg() -> Option<PathBuf> {
             return args.next().map(PathBuf::from);
         }
     }
-    std::env::var_os("ALLEYCAT_BRIDGE_SOCKET").map(PathBuf::from)
+    std::env::var_os("REMORA_BRIDGE_SOCKET").map(PathBuf::from)
 }

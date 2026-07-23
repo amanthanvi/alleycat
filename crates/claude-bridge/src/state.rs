@@ -10,12 +10,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use alleycat_bridge_core::ProcessLauncher;
-use alleycat_bridge_core::session::Session;
+use remora_bridge_core::ProcessLauncher;
+use remora_bridge_core::session::Session;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use alleycat_codex_proto::{
+use remora_codex_proto::{
     ApprovalsReviewer, AskForApproval, InitializeCapabilities, JsonRpcMessage, ReasoningEffort,
     RequestId, SandboxMode, ThreadItem, Turn, TurnError, TurnStatus,
 };
@@ -25,15 +25,15 @@ use crate::pool::ClaudePool;
 use crate::pool::claude_protocol::{McpServerInit, RateLimitInfo, SystemInit};
 
 /// Compat re-export so the daemon's
-/// `Arc<dyn alleycat_claude_bridge::state::ThreadIndexHandle>` keeps spelling
+/// `Arc<dyn remora_claude_bridge::state::ThreadIndexHandle>` keeps spelling
 /// the right trait. Goes away in A5 once the daemon adopts the builder API.
 ///
 /// Implementors specialize on [`ClaudeSessionRef`]; the supertrait constraint
 /// pins the metadata so the daemon doesn't need to spell it.
-pub trait ThreadIndexHandle: alleycat_bridge_core::ThreadIndexHandle<ClaudeSessionRef> {}
+pub trait ThreadIndexHandle: remora_bridge_core::ThreadIndexHandle<ClaudeSessionRef> {}
 
 impl<T> ThreadIndexHandle for T where
-    T: alleycat_bridge_core::ThreadIndexHandle<ClaudeSessionRef> + ?Sized
+    T: remora_bridge_core::ThreadIndexHandle<ClaudeSessionRef> + ?Sized
 {
 }
 
@@ -46,11 +46,11 @@ pub struct ConnectionState {
     claude_pool: Arc<ClaudePool>,
     thread_index: Arc<dyn ThreadIndexHandle>,
     /// Launcher used for `command/exec` shell tools. `None` falls back to a
-    /// bridge-default [`alleycat_bridge_core::LocalLauncher`] (preserves the
+    /// bridge-default [`remora_bridge_core::LocalLauncher`] (preserves the
     /// pre-refactor behavior of the legacy `for_test` helper).
     launcher: Option<Arc<dyn ProcessLauncher>>,
     /// Trust indexed thread cwd values without checking local filesystem
-    /// existence. Embedders that run the agent somewhere else, like Litter's
+    /// existence. Embedders that run the agent somewhere else, like Remora's
     /// SSH launcher, need the cwd to be validated by that remote process.
     trust_persisted_cwd: bool,
     caches: Mutex<ClaudeCaches>,
@@ -68,7 +68,7 @@ pub struct RecordedTurn {
     pub items: Vec<ThreadItem>,
 }
 
-pub use alleycat_bridge_core::state::Capabilities;
+pub use remora_bridge_core::state::Capabilities;
 
 /// Bridge defaults for a new thread. Seeded on construction and overrideable
 /// per-`thread/start` request via `ThreadStartParams`.
@@ -102,17 +102,17 @@ pub enum ServerRequestError {
     TimedOut,
 }
 
-impl From<alleycat_bridge_core::state::ServerRequestError> for ServerRequestError {
-    fn from(value: alleycat_bridge_core::state::ServerRequestError) -> Self {
+impl From<remora_bridge_core::state::ServerRequestError> for ServerRequestError {
+    fn from(value: remora_bridge_core::state::ServerRequestError) -> Self {
         match value {
-            alleycat_bridge_core::state::ServerRequestError::Rpc(err) => Self::Rpc {
+            remora_bridge_core::state::ServerRequestError::Rpc(err) => Self::Rpc {
                 code: err.code,
                 message: err.message,
             },
-            alleycat_bridge_core::state::ServerRequestError::ConnectionClosed => {
+            remora_bridge_core::state::ServerRequestError::ConnectionClosed => {
                 Self::ConnectionClosed
             }
-            alleycat_bridge_core::state::ServerRequestError::TimedOut => Self::TimedOut,
+            remora_bridge_core::state::ServerRequestError::TimedOut => Self::TimedOut,
         }
     }
 }
@@ -215,7 +215,7 @@ impl ConnectionState {
         let (tx, rx) = oneshot::channel();
         let key = request_id.to_string();
         let (core_tx, core_rx) =
-            oneshot::channel::<Result<Value, alleycat_bridge_core::state::ServerRequestError>>();
+            oneshot::channel::<Result<Value, remora_bridge_core::state::ServerRequestError>>();
         self.session.register_pending(key, method, params, core_tx);
         tokio::spawn(async move {
             let mapped = match core_rx.await {
@@ -233,11 +233,11 @@ impl ConnectionState {
         request_id: &RequestId,
         result: Result<Value, ServerRequestError>,
     ) -> bool {
-        let mapped: Result<Value, alleycat_bridge_core::state::ServerRequestError> = match result {
+        let mapped: Result<Value, remora_bridge_core::state::ServerRequestError> = match result {
             Ok(v) => Ok(v),
             Err(ServerRequestError::Rpc { code, message }) => {
-                Err(alleycat_bridge_core::state::ServerRequestError::Rpc(
-                    alleycat_bridge_core::JsonRpcError {
+                Err(remora_bridge_core::state::ServerRequestError::Rpc(
+                    remora_bridge_core::JsonRpcError {
                         code,
                         message,
                         data: None,
@@ -245,10 +245,10 @@ impl ConnectionState {
                 ))
             }
             Err(ServerRequestError::ConnectionClosed) => {
-                Err(alleycat_bridge_core::state::ServerRequestError::ConnectionClosed)
+                Err(remora_bridge_core::state::ServerRequestError::ConnectionClosed)
             }
             Err(ServerRequestError::TimedOut) => {
-                Err(alleycat_bridge_core::state::ServerRequestError::TimedOut)
+                Err(remora_bridge_core::state::ServerRequestError::TimedOut)
             }
         };
         self.session
@@ -350,7 +350,7 @@ impl ConnectionState {
                 Turn {
                     id: t.turn_id.clone(),
                     items: t.items.clone(),
-                    items_view: alleycat_codex_proto::default_items_view(),
+                    items_view: remora_codex_proto::default_items_view(),
                     status: t.status,
                     error: t.error.clone(),
                     started_at: Some(started_at),
@@ -376,7 +376,7 @@ impl ConnectionState {
         defaults: ThreadDefaults,
     ) -> (
         Arc<Self>,
-        tokio::sync::mpsc::UnboundedReceiver<alleycat_bridge_core::session::Sequenced>,
+        tokio::sync::mpsc::UnboundedReceiver<remora_bridge_core::session::Sequenced>,
     ) {
         let session = Arc::new(Session::new("claude", "test".into(), 64, 1 << 20));
         let attach = session.install_attachment(None);

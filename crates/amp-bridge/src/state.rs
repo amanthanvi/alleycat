@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use alleycat_bridge_core::ProcessLauncher;
-use alleycat_bridge_core::session::Session;
-use alleycat_codex_proto::{
+use remora_bridge_core::ProcessLauncher;
+use remora_bridge_core::session::Session;
+use remora_codex_proto::{
     ApprovalsReviewer, AskForApproval, InitializeCapabilities, JsonRpcMessage, ReasoningEffort,
     SandboxMode, ThreadItem, Turn, TurnError, TurnStatus,
 };
@@ -11,15 +11,15 @@ use serde_json::Value;
 
 use crate::index::AmpSessionRef;
 
-pub trait ThreadIndexHandle: alleycat_bridge_core::ThreadIndexHandle<AmpSessionRef> {}
+pub trait ThreadIndexHandle: remora_bridge_core::ThreadIndexHandle<AmpSessionRef> {}
 
 impl<T> ThreadIndexHandle for T where
-    T: alleycat_bridge_core::ThreadIndexHandle<AmpSessionRef> + ?Sized
+    T: remora_bridge_core::ThreadIndexHandle<AmpSessionRef> + ?Sized
 {
 }
 
 pub use crate::index::{IndexEntry, ListFilter, ListPage, ListSort};
-pub use alleycat_bridge_core::state::Capabilities;
+pub use remora_bridge_core::state::Capabilities;
 
 pub struct ConnectionState {
     defaults: Mutex<ThreadDefaults>,
@@ -237,7 +237,7 @@ impl ConnectionState {
                 Turn {
                     id: t.turn_id.clone(),
                     items: t.items.clone(),
-                    items_view: alleycat_codex_proto::default_items_view(),
+                    items_view: remora_codex_proto::default_items_view(),
                     status: t.status,
                     error: t.error.clone(),
                     started_at: Some(started_at),

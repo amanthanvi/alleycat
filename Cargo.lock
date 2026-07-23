@@ -67,336 +67,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alleycat"
-version = "0.1.0"
-dependencies = [
- "alleycat-acp-bridge",
- "alleycat-amp-bridge",
- "alleycat-bridge-core",
- "alleycat-claude-bridge",
- "alleycat-devin-bridge",
- "alleycat-droid-bridge",
- "alleycat-grok-bridge",
- "alleycat-hermes-bridge",
- "alleycat-opencode-bridge",
- "alleycat-pi-bridge",
- "alleycat-shell-bridge",
- "anyhow",
- "arc-swap",
- "async-trait",
- "base64",
- "clap",
- "directories",
- "fd-lock",
- "futures",
- "hex",
- "hostname",
- "iroh",
- "libc",
- "mslnk",
- "p256",
- "qrcodegen",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "subtle",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "toml",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "which",
- "zeroize",
-]
-
-[[package]]
-name = "alleycat-acp-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "futures",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-amp-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-claude-bridge",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "directories",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-bridge-conformance"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "jsonschema",
- "pretty_assertions",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "which",
-]
-
-[[package]]
-name = "alleycat-bridge-core"
-version = "0.1.0"
-dependencies = [
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "futures",
- "libc",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "alleycat-claude-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "directories",
- "futures",
- "pretty_assertions",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-claude-remote-control"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "clap",
- "futures",
- "hostname",
- "pretty_assertions",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-codex-proto"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "alleycat-devin-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-acp-bridge",
- "alleycat-bridge-core",
- "anyhow",
- "async-trait",
- "rusqlite",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "alleycat-droid-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "chrono",
- "directories",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-grok-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-acp-bridge",
- "alleycat-bridge-core",
- "anyhow",
- "async-trait",
- "chrono",
- "rusqlite",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "alleycat-hermes-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "chrono",
- "directories",
- "futures",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
- "which",
-]
-
-[[package]]
-name = "alleycat-opencode-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "anyhow",
- "async-trait",
- "base64",
- "futures",
- "hex",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "alleycat-pi-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "alleycat-codex-proto",
- "anyhow",
- "async-trait",
- "base64",
- "chrono",
- "dashmap",
- "directories",
- "futures",
- "pretty_assertions",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "alleycat-shell-bridge"
-version = "0.1.0"
-dependencies = [
- "alleycat-bridge-core",
- "anyhow",
- "async-trait",
- "base64",
- "portable-pty",
- "pretty_assertions",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3773,11 +3443,341 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
+name = "remora-acp-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "futures",
+ "remora-bridge-core",
+ "remora-codex-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "remora-amp-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "directories",
+ "remora-bridge-core",
+ "remora-claude-bridge",
+ "remora-codex-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "remora-bridge-conformance"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "jsonschema",
+ "pretty_assertions",
+ "remora-bridge-core",
+ "remora-codex-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "which",
+]
+
+[[package]]
+name = "remora-bridge-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "futures",
+ "libc",
+ "remora-codex-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "remora-claude-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "directories",
+ "futures",
+ "pretty_assertions",
+ "remora-bridge-core",
+ "remora-codex-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "remora-claude-remote-control"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "futures",
+ "hostname",
+ "pretty_assertions",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "remora-codex-proto"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "remora-devin-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "remora-acp-bridge",
+ "remora-bridge-core",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "remora-droid-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "directories",
+ "remora-bridge-core",
+ "remora-codex-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "remora-grok-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "remora-acp-bridge",
+ "remora-bridge-core",
+ "rusqlite",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "remora-hermes-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "directories",
+ "futures",
+ "rand 0.8.6",
+ "remora-bridge-core",
+ "remora-codex-proto",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "which",
+]
+
+[[package]]
+name = "remora-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "base64",
+ "clap",
+ "directories",
+ "fd-lock",
+ "futures",
+ "hex",
+ "hostname",
+ "iroh",
+ "libc",
+ "mslnk",
+ "p256",
+ "qrcodegen",
+ "rand 0.8.6",
+ "remora-acp-bridge",
+ "remora-amp-bridge",
+ "remora-bridge-core",
+ "remora-claude-bridge",
+ "remora-devin-bridge",
+ "remora-droid-bridge",
+ "remora-grok-bridge",
+ "remora-hermes-bridge",
+ "remora-opencode-bridge",
+ "remora-pi-bridge",
+ "remora-shell-bridge",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "toml",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "which",
+ "zeroize",
+]
+
+[[package]]
 name = "remora-link"
 version = "0.1.0"
 dependencies = [
- "alleycat",
  "anyhow",
+ "remora-host",
+]
+
+[[package]]
+name = "remora-opencode-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "futures",
+ "hex",
+ "rand 0.8.6",
+ "remora-bridge-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "remora-pi-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "chrono",
+ "dashmap",
+ "directories",
+ "futures",
+ "pretty_assertions",
+ "remora-bridge-core",
+ "remora-codex-proto",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "remora-shell-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "portable-pty",
+ "pretty_assertions",
+ "remora-bridge-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

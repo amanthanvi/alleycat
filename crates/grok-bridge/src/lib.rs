@@ -30,10 +30,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use alleycat_acp_bridge::AcpBridge;
-use alleycat_bridge_core::{Bridge, Conn, JsonRpcError, ProcessLauncher, error_codes};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use remora_acp_bridge::AcpBridge;
+use remora_bridge_core::{Bridge, Conn, JsonRpcError, ProcessLauncher, error_codes};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use tracing::warn;
@@ -172,39 +172,32 @@ impl GrokBridge {
     /// Converts any `userMessage.content` items that have `type: "content"`
     /// into the client-expected `inputText` / `inputImage` shapes.
     fn sanitize_user_message_content(&self, mut response: Value) -> Value {
-        if let Some(data) = response.get_mut("data") {
-            if let Some(turns) = data.get_mut("turns").and_then(|v| v.as_array_mut()) {
-                for turn in turns {
-                    if let Some(items) = turn.get_mut("items").and_then(|v| v.as_array_mut()) {
-                        for item in items {
-                            // Look for userMessage items
-                            if let Some(user_msg) = item.get_mut("userMessage") {
-                                if let Some(content_arr) =
-                                    user_msg.get_mut("content").and_then(|v| v.as_array_mut())
+        if let Some(data) = response.get_mut("data")
+            && let Some(turns) = data.get_mut("turns").and_then(|v| v.as_array_mut())
+        {
+            for turn in turns {
+                if let Some(items) = turn.get_mut("items").and_then(|v| v.as_array_mut()) {
+                    for item in items {
+                        // Look for userMessage items
+                        if let Some(user_msg) = item.get_mut("userMessage")
+                            && let Some(content_arr) =
+                                user_msg.get_mut("content").and_then(|v| v.as_array_mut())
+                        {
+                            for content_item in content_arr {
+                                if let Some(obj) = content_item.as_object_mut()
+                                    && obj.get("type") == Some(&json!("content"))
                                 {
-                                    for content_item in content_arr {
-                                        if let Some(obj) = content_item.as_object_mut() {
-                                            if obj.get("type") == Some(&json!("content")) {
-                                                // Unwrap the inner content
-                                                if let Some(inner) = obj
-                                                    .get_mut("content")
-                                                    .and_then(|v| v.as_object_mut())
-                                                {
-                                                    if let Some(text) =
-                                                        inner.get("text").and_then(|v| v.as_str())
-                                                    {
-                                                        // Convert to inputText
-                                                        *obj = serde_json::Map::from_iter([
-                                                            (
-                                                                "type".to_string(),
-                                                                json!("inputText"),
-                                                            ),
-                                                            ("text".to_string(), json!(text)),
-                                                        ]);
-                                                    }
-                                                }
-                                            }
-                                        }
+                                    // Unwrap the inner content
+                                    if let Some(inner) =
+                                        obj.get_mut("content").and_then(|v| v.as_object_mut())
+                                        && let Some(text) =
+                                            inner.get("text").and_then(|v| v.as_str())
+                                    {
+                                        // Convert to inputText
+                                        *obj = serde_json::Map::from_iter([
+                                            ("type".to_string(), json!("inputText")),
+                                            ("text".to_string(), json!(text)),
+                                        ]);
                                     }
                                 }
                             }
@@ -220,25 +213,19 @@ impl GrokBridge {
     fn lookup_cwd_for_session(&self, session_id: &str) -> Option<String> {
         // Fast path via sqlite
         let sqlite_path = self.sessions_dir.join("session_search.sqlite");
-        if sqlite_path.exists() {
-            if let Ok(conn) = Connection::open_with_flags(
+        if sqlite_path.exists()
+            && let Ok(conn) = Connection::open_with_flags(
                 &sqlite_path,
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-            ) {
-                if let Ok(mut stmt) =
-                    conn.prepare("SELECT cwd FROM session_docs WHERE session_id = ?1 LIMIT 1")
-                {
-                    if let Ok(mut rows) = stmt.query([session_id]) {
-                        if let Ok(Some(row)) = rows.next() {
-                            if let Ok(cwd) = row.get::<_, String>(0) {
-                                if !cwd.is_empty() {
-                                    return Some(cwd);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            )
+            && let Ok(mut stmt) =
+                conn.prepare("SELECT cwd FROM session_docs WHERE session_id = ?1 LIMIT 1")
+            && let Ok(mut rows) = stmt.query([session_id])
+            && let Ok(Some(row)) = rows.next()
+            && let Ok(cwd) = row.get::<_, String>(0)
+            && !cwd.is_empty()
+        {
+            return Some(cwd);
         }
 
         // Fallback: walk and read summary.json
@@ -251,18 +238,15 @@ impl GrokBridge {
             }
 
             let summary_path = project_path.join(session_id).join("summary.json");
-            if let Ok(content) = std::fs::read_to_string(&summary_path) {
-                if let Ok(summary) = serde_json::from_str::<Value>(&content) {
-                    if let Some(cwd) = summary
-                        .get("info")
-                        .and_then(|i| i.get("cwd"))
-                        .and_then(|v| v.as_str())
-                    {
-                        if !cwd.is_empty() {
-                            return Some(cwd.to_string());
-                        }
-                    }
-                }
+            if let Ok(content) = std::fs::read_to_string(&summary_path)
+                && let Ok(summary) = serde_json::from_str::<Value>(&content)
+                && let Some(cwd) = summary
+                    .get("info")
+                    .and_then(|i| i.get("cwd"))
+                    .and_then(|v| v.as_str())
+                && !cwd.is_empty()
+            {
+                return Some(cwd.to_string());
             }
         }
 
@@ -359,45 +343,44 @@ fn read_from_summary_files(sessions_dir: &Path) -> Result<Vec<Value>> {
                 continue;
             }
 
-            if let Ok(content) = std::fs::read_to_string(&summary_path) {
-                if let Ok(summary) = serde_json::from_str::<Value>(&content) {
-                    if let Some(info) = summary.get("info") {
-                        let id = info.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                        let cwd = info.get("cwd").and_then(|v| v.as_str()).unwrap_or("");
+            if let Ok(content) = std::fs::read_to_string(&summary_path)
+                && let Ok(summary) = serde_json::from_str::<Value>(&content)
+                && let Some(info) = summary.get("info")
+            {
+                let id = info.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let cwd = info.get("cwd").and_then(|v| v.as_str()).unwrap_or("");
 
-                        let title = summary
-                            .get("session_summary")
-                            .or_else(|| summary.get("generated_title"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                let title = summary
+                    .get("session_summary")
+                    .or_else(|| summary.get("generated_title"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
 
-                        let created = summary.get("created_at").and_then(|v| v.as_str());
-                        let updated = summary.get("updated_at").and_then(|v| v.as_str());
+                let created = summary.get("created_at").and_then(|v| v.as_str());
+                let updated = summary.get("updated_at").and_then(|v| v.as_str());
 
-                        // Convert ISO timestamps to millis (best effort)
-                        let created_ms = parse_iso_to_millis(created);
-                        let updated_ms = parse_iso_to_millis(updated).or(created_ms).unwrap_or(0);
+                // Convert ISO timestamps to millis (best effort)
+                let created_ms = parse_iso_to_millis(created);
+                let updated_ms = parse_iso_to_millis(updated).or(created_ms).unwrap_or(0);
 
-                        out.push(json!({
-                            "id": id,
-                            "sessionId": id,
-                            "preview": title,
-                            "name": if title.is_empty() { Value::Null } else { json!(title) },
-                            "ephemeral": false,
-                            "modelProvider": "grok",
-                            "createdAt": created_ms,
-                            "updatedAt": updated_ms,
-                            "status": { "type": "notLoaded" },
-                            "cwd": cwd,
-                            "cliVersion": "",
-                            "source": "appServer",
-                            "agentNickname": null,
-                            "agentRole": null,
-                            "turns": [],
-                        }));
-                    }
-                }
+                out.push(json!({
+                    "id": id,
+                    "sessionId": id,
+                    "preview": title,
+                    "name": if title.is_empty() { Value::Null } else { json!(title) },
+                    "ephemeral": false,
+                    "modelProvider": "grok",
+                    "createdAt": created_ms,
+                    "updatedAt": updated_ms,
+                    "status": { "type": "notLoaded" },
+                    "cwd": cwd,
+                    "cliVersion": "",
+                    "source": "appServer",
+                    "agentNickname": null,
+                    "agentRole": null,
+                    "turns": [],
+                }));
             }
         }
     }

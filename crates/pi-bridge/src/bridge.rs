@@ -3,7 +3,7 @@
 //!
 //! Construction goes through [`PiBridge::builder`]. The bridge owns the pi
 //! process pool, the `bridge_core::ThreadIndex<PiSessionRef>`, the codex_home
-//! path, and a `ProcessLauncher` (the daemon plugs `LocalLauncher`; Litter
+//! path, and a `ProcessLauncher` (the daemon plugs `LocalLauncher`; Remora
 //! plugs `SshLauncher`). Per-connection `ThreadDefaults` lives in a
 //! `DashMap` keyed by `session_id` so the same `(client_node_id, agent)`
 //! session keeps its config across iroh disconnects.
@@ -13,14 +13,14 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use alleycat_bridge_core::{
-    Bridge, Conn, JsonRpcError, LocalLauncher, ProcessLauncher, UserEnvironmentLauncher,
-    error_codes,
-};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use remora_bridge_core::{
+    Bridge, Conn, JsonRpcError, LocalLauncher, ProcessLauncher, UserEnvironmentLauncher,
+    error_codes,
+};
 use serde_json::Value;
 
 use crate::codex_proto as p;
@@ -32,7 +32,7 @@ use crate::state::{ConnectionState, ThreadDefaults, ThreadIndexHandle};
 /// Build the per-session map key from the session's `(node_id, agent)`
 /// identity. Matches the registry's keying so the same daemon-managed
 /// session gets the same `ThreadDefaults` slot across reattaches.
-fn session_key(session: &alleycat_bridge_core::session::Session) -> String {
+fn session_key(session: &remora_bridge_core::session::Session) -> String {
     format!("{}:{}", session.node_id, session.agent)
 }
 
@@ -170,15 +170,15 @@ impl PiBridgeBuilder {
     /// `PI_BRIDGE_PI_BIN`, `CODEX_HOME`. Builder-set values win when both
     /// are present.
     pub fn from_env(mut self) -> Self {
-        if self.agent_bin.is_none() {
-            if let Some(bin) = std::env::var_os("PI_BRIDGE_PI_BIN") {
-                self.agent_bin = Some(PathBuf::from(bin));
-            }
+        if self.agent_bin.is_none()
+            && let Some(bin) = std::env::var_os("PI_BRIDGE_PI_BIN")
+        {
+            self.agent_bin = Some(PathBuf::from(bin));
         }
-        if self.codex_home.is_none() {
-            if let Some(home) = std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()) {
-                self.codex_home = Some(PathBuf::from(home));
-            }
+        if self.codex_home.is_none()
+            && let Some(home) = std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty())
+        {
+            self.codex_home = Some(PathBuf::from(home));
         }
         self
     }

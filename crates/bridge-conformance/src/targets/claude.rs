@@ -1,4 +1,4 @@
-//! Claude target — spawn `alleycat-claude-bridge` in stdio mode with
+//! Claude target — spawn `remora-claude-bridge` in stdio mode with
 //! `CLAUDE_BRIDGE_CLAUDE_BIN` pointed at a real `claude` CLI.
 
 use std::process::Stdio;

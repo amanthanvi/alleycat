@@ -5,9 +5,9 @@
 //! every conformance run would add another row to it.
 //!
 //! Two artifacts:
-//! - `~/.cache/alleycat-bridge-conformance/threads.json` — map of
+//! - `~/.cache/remora-bridge-conformance/threads.json` — map of
 //!   `target_label -> thread_id`. Created lazily on first save.
-//! - `~/.cache/alleycat-bridge-conformance/cwd/` — the stable working
+//! - `~/.cache/remora-bridge-conformance/cwd/` — the stable working
 //!   directory passed as `thread/start.cwd`. Created lazily by the test
 //!   harness; never deleted.
 //!
@@ -29,7 +29,7 @@ pub fn cache_root() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let mut p = PathBuf::from(home);
     p.push(".cache");
-    p.push("alleycat-bridge-conformance");
+    p.push("remora-bridge-conformance");
     Some(p)
 }
 

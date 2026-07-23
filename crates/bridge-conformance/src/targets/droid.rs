@@ -1,4 +1,4 @@
-//! Droid target — spawn `alleycat-droid-bridge` in stdio mode with
+//! Droid target — spawn `remora-droid-bridge` in stdio mode with
 //! `DROID_BRIDGE_DROID_BIN` pointed at a real Factory Droid CLI.
 
 use std::process::Stdio;

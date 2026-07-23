@@ -1,5 +1,5 @@
 [package]
-name = "alleycat-droid-bridge"
+name = "remora-droid-bridge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ readme.workspace = true
 description = "Codex app-server facade over Factory Droid's stream-jsonrpc exec mode."
 
 [[bin]]
-name = "alleycat-droid-bridge"
+name = "remora-droid-bridge"
 path = "src/main.rs"
 
 [[bin]]
@@ -18,12 +18,12 @@ name = "fake-droid"
 path = "tests/support/fake_droid.rs"
 
 [lib]
-name = "alleycat_droid_bridge"
+name = "remora_droid_bridge"
 path = "src/lib.rs"
 
 [dependencies]
-alleycat-bridge-core = { workspace = true }
-alleycat-codex-proto = { workspace = true }
+remora-bridge-core = { workspace = true }
+remora-codex-proto = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }

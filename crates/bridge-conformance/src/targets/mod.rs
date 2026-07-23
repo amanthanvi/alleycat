@@ -26,7 +26,7 @@ pub mod pi;
 #[derive(Debug, Clone)]
 pub struct TargetSpawn {
     pub target: TargetId,
-    /// Path to `alleycat-{pi,claude,opencode}-bridge`. Required for the
+    /// Path to `remora-{pi,claude,opencode}-bridge`. Required for the
     /// three bridge targets; ignored for codex (which we drive directly).
     pub bridge_bin: Option<PathBuf>,
     /// Path to the backend CLI (`codex`, `pi`, `claude`, `opencode`).

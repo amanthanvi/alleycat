@@ -4,20 +4,20 @@ use std::path::{Path, PathBuf};
 
 /// POSIX shell lines consumed by `POSIX_RESOLVE_CODEX_BINARY`.
 pub const POSIX_SHELL_CANDIDATE_LINES: &[&str] = &[
-    r#"_litter_consider_path_candidates codex codex"#,
-    r#"_litter_consider_candidate codex "${CODEX_HOME:-$HOME/.codex}/packages/standalone/current/codex""#,
-    r#"_litter_consider_candidate codex "${BUN_INSTALL:-$HOME/.bun}/bin/codex""#,
-    r#"_litter_consider_candidate codex "$HOME/.volta/bin/codex""#,
-    r#"_litter_consider_candidate codex "$HOME/.local/bin/codex""#,
-    r#"_litter_consider_from_dir codex codex "${PNPM_HOME:-}""#,
-    r#"_litter_consider_from_dir codex codex "${NVM_BIN:-}""#,
-    r#"_litter_consider_from_dir codex codex "${VOLTA_HOME:+$VOLTA_HOME/bin}""#,
-    r#"_litter_consider_from_dir codex codex "${CARGO_HOME:-$HOME/.cargo}/bin""#,
-    r#"_litter_consider_candidate codex "$HOME/Applications/Codex.app/Contents/Resources/codex""#,
-    r#"_litter_consider_candidate codex "/Applications/Codex.app/Contents/Resources/codex""#,
-    r#"_litter_consider_candidate codex "/opt/homebrew/bin/codex""#,
-    r#"_litter_consider_candidate codex "/usr/local/bin/codex""#,
-    r#"_litter_consider_candidate codex "/usr/bin/codex""#,
+    r#"_remora_consider_path_candidates codex codex"#,
+    r#"_remora_consider_candidate codex "${CODEX_HOME:-$HOME/.codex}/packages/standalone/current/codex""#,
+    r#"_remora_consider_candidate codex "${BUN_INSTALL:-$HOME/.bun}/bin/codex""#,
+    r#"_remora_consider_candidate codex "$HOME/.volta/bin/codex""#,
+    r#"_remora_consider_candidate codex "$HOME/.local/bin/codex""#,
+    r#"_remora_consider_from_dir codex codex "${PNPM_HOME:-}""#,
+    r#"_remora_consider_from_dir codex codex "${NVM_BIN:-}""#,
+    r#"_remora_consider_from_dir codex codex "${VOLTA_HOME:+$VOLTA_HOME/bin}""#,
+    r#"_remora_consider_from_dir codex codex "${CARGO_HOME:-$HOME/.cargo}/bin""#,
+    r#"_remora_consider_candidate codex "$HOME/Applications/Codex.app/Contents/Resources/codex""#,
+    r#"_remora_consider_candidate codex "/Applications/Codex.app/Contents/Resources/codex""#,
+    r#"_remora_consider_candidate codex "/opt/homebrew/bin/codex""#,
+    r#"_remora_consider_candidate codex "/usr/local/bin/codex""#,
+    r#"_remora_consider_candidate codex "/usr/bin/codex""#,
 ];
 
 pub const POSIX_RESOLVE_CODEX_BINARY: &str =
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn shell_candidate_lines_cover_common_posix_installs() {
         let shell = shell_candidate_lines().join("\n");
-        assert!(shell.contains("_litter_consider_path_candidates codex codex"));
+        assert!(shell.contains("_remora_consider_path_candidates codex codex"));
         assert!(shell.contains("packages/standalone/current/codex"));
         assert!(shell.contains("Codex.app/Contents/Resources/codex"));
         assert!(shell.contains(".local/bin/codex"));
@@ -352,7 +352,7 @@ mod tests {
 
         let script = POSIX_RESOLVE_CODEX_BINARY.replace(
             "{{SHARED_LINES}}",
-            "_litter_consider_path_candidates codex codex",
+            "_remora_consider_path_candidates codex codex",
         );
         let original_path = std::env::var("PATH").unwrap_or_default();
         let path_value = format!(

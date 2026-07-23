@@ -1,5 +1,5 @@
 [package]
-name = "alleycat-claude-remote-control"
+name = "remora-claude-remote-control"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,14 +7,14 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-description = "Typed Claude Code Remote Control protocol, API, and transport primitives for Alleycat apps."
+description = "Typed Claude Code Remote Control protocol, API, and transport primitives for Remora apps."
 
 [lib]
-name = "alleycat_claude_remote_control"
+name = "remora_claude_remote_control"
 path = "src/lib.rs"
 
 [[bin]]
-name = "alleycat-claude-remote-control"
+name = "remora-claude-remote-control"
 path = "src/main.rs"
 
 [dependencies]

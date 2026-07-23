@@ -35,8 +35,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use alleycat_bridge_core::{ChildProcess, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode};
 use anyhow::Result;
+use remora_bridge_core::{ChildProcess, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -97,11 +97,11 @@ impl Inner {
         }
         // Notification: forward to live subscriber + buffer.
         let buffered = frame.clone();
-        if let Some(tx) = self.notification_tx.lock().await.as_ref() {
-            if tx.send(frame).is_err() {
-                // Subscriber went away — clear it so we stop trying.
-                *self.notification_tx.lock().await = None;
-            }
+        if let Some(tx) = self.notification_tx.lock().await.as_ref()
+            && tx.send(frame).is_err()
+        {
+            // Subscriber went away — clear it so we stop trying.
+            *self.notification_tx.lock().await = None;
         }
         self.pending_notifications.lock().await.push(buffered);
     }
@@ -110,7 +110,7 @@ impl Inner {
 /// ACP client that communicates with an ACP agent over stdio.
 pub struct AcpClient {
     process: Arc<Mutex<Box<dyn ChildProcess>>>,
-    stdin: Arc<Mutex<alleycat_bridge_core::ChildStdin>>,
+    stdin: Arc<Mutex<remora_bridge_core::ChildStdin>>,
     inner: Arc<Inner>,
     /// Serializes outstanding requests. ACP notifications aren't tagged
     /// with which in-flight request they belong to, so we deliberately
@@ -341,9 +341,9 @@ impl AcpClient {
 /// Background loop: read newline-delimited JSON frames from the agent
 /// and dispatch each one through `Inner`.
 async fn reader_task(
-    mut reader: BufReader<alleycat_bridge_core::ChildStdout>,
+    mut reader: BufReader<remora_bridge_core::ChildStdout>,
     inner: Arc<Inner>,
-    stdin: Arc<Mutex<alleycat_bridge_core::ChildStdin>>,
+    stdin: Arc<Mutex<remora_bridge_core::ChildStdin>>,
 ) {
     loop {
         let mut line = String::new();
@@ -401,7 +401,7 @@ struct TerminalRecord {
 
 async fn respond_to_agent_request(
     inner: &Arc<Inner>,
-    stdin: &Arc<Mutex<alleycat_bridge_core::ChildStdin>>,
+    stdin: &Arc<Mutex<remora_bridge_core::ChildStdin>>,
     frame: Value,
 ) {
     let id = frame.get("id").cloned().unwrap_or(Value::Null);
@@ -678,11 +678,11 @@ async fn handle_terminal_kill(
     params: &Value,
 ) -> std::result::Result<Value, String> {
     let id = required_terminal_id(params)?;
-    if let Some(record) = inner.terminals.lock().await.get_mut(id) {
-        if record.exit_code.is_none() {
-            record.exit_code = Some(-1);
-            record.signal = Some("killed".to_string());
-        }
+    if let Some(record) = inner.terminals.lock().await.get_mut(id)
+        && record.exit_code.is_none()
+    {
+        record.exit_code = Some(-1);
+        record.signal = Some("killed".to_string());
     }
     Ok(Value::Null)
 }

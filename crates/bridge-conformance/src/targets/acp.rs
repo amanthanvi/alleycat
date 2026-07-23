@@ -1,4 +1,4 @@
-//! ACP target — spawn `alleycat-acp-bridge` in stdio mode with
+//! ACP target — spawn `remora-acp-bridge` in stdio mode with
 //! `ACP_BRIDGE_AGENT_BIN` + `ACP_BRIDGE_AGENT_ARGS` pointed at an ACP-compliant agent
 //! (e.g. `devin` with "acp", or `grok` with "agent stdio").
 

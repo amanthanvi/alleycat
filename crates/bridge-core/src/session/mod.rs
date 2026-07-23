@@ -167,16 +167,16 @@ impl Session {
     /// Push a frame into the replay ring and forward to the live drainer if
     /// one is attached. Returns the assigned seq.
     ///
-    /// The payload is stamped with `_alleycat_seq: <seq>` as a top-level
+    /// The payload is stamped with `_remora_link_seq: <seq>` as a top-level
     /// field on JSON object payloads so a future cursor-aware client can
     /// read it off the wire. Codex's JSON-RPC envelopes use serde without
-    /// `deny_unknown_fields`, so existing litter-side parsers ignore it.
+    /// `deny_unknown_fields`, so existing remora-side parsers ignore it.
     /// Non-object payloads are passed through unstamped.
     pub fn enqueue(&self, mut payload: Value) -> u64 {
         let seq = {
             let mut ring = self.ring.lock().unwrap();
             let next = ring.next_seq_peek();
-            stamp_alleycat_seq(&mut payload, next);
+            stamp_remora_link_seq(&mut payload, next);
             let assigned = ring.push(payload.clone());
             debug_assert_eq!(assigned, next, "ring assigned a different seq than peeked");
             assigned
@@ -367,12 +367,12 @@ impl Session {
     }
 }
 
-/// Stamp a JSON object payload with `_alleycat_seq: <seq>` as a top-level
+/// Stamp a JSON object payload with `_remora_link_seq: <seq>` as a top-level
 /// field. No-op for non-object values (arrays, scalars, null) — those don't
 /// need a cursor and stamping would change their shape.
-fn stamp_alleycat_seq(payload: &mut Value, seq: u64) {
+fn stamp_remora_link_seq(payload: &mut Value, seq: u64) {
     if let Some(obj) = payload.as_object_mut() {
-        obj.insert("_alleycat_seq".to_string(), Value::from(seq));
+        obj.insert("_remora_link_seq".to_string(), Value::from(seq));
     }
 }
 

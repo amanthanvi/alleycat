@@ -26,7 +26,7 @@ bytes under an already-used version.
 For every package, configure npm's GitHub Actions trusted publisher with:
 
 - owner: `amanthanvi`
-- repository: `alleycat`
+- repository: `remora`
 - workflow: `remora-link-release.yml`
 - environment: `npm`
 - allowed action: `npm publish`
@@ -40,7 +40,7 @@ contain or consume an npm write token.
 
 1. Update `crates/remora-link`'s version, the launcher version, every platform
    package version, and every exact optional dependency together. Leave the
-   Alleycat workspace version independent.
+   Remora workspace version independent.
 2. Run:
 
    ```sh
@@ -59,7 +59,7 @@ contain or consume an npm write token.
    : "${CODEX_CHECKOUT:?set CODEX_CHECKOUT to an exact openai/codex checkout}"
    test "$(git -C "$CODEX_CHECKOUT" rev-parse HEAD)" = "$CODEX_SCHEMA_REV"
    BRIDGE_CONFORMANCE_CODEX_SCHEMA_DIR="$CODEX_CHECKOUT/codex-rs/app-server-protocol/schema/json/v2" \
-     cargo test --locked --package alleycat-bridge-conformance
+     cargo test --locked --package remora-bridge-conformance
    ```
 
    `CODEX_CHECKOUT` must be an exact checkout of `openai/codex`, not a moving

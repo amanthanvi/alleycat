@@ -28,11 +28,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use alleycat_bridge_core::framing::{read_json_line, write_json_line};
-use alleycat_bridge_core::server::serve_stream;
-use alleycat_bridge_core::{JsonRpcRequest, JsonRpcVersion, RequestId};
-use alleycat_opencode_bridge::OpencodeBridge;
-use alleycat_opencode_bridge::opencode_proc::OpencodeRuntime;
+use remora_bridge_core::framing::{read_json_line, write_json_line};
+use remora_bridge_core::server::serve_stream;
+use remora_bridge_core::{JsonRpcRequest, JsonRpcVersion, RequestId};
+use remora_opencode_bridge::OpencodeBridge;
+use remora_opencode_bridge::opencode_proc::OpencodeRuntime;
 use serde_json::{Value, json};
 use tokio::io::{AsyncWriteExt, BufReader};
 

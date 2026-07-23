@@ -2,7 +2,7 @@
 //! local impl — bridge crates are responsible for testing their own
 //! launcher-driven spawn paths.
 
-use alleycat_bridge_core::{LocalLauncher, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode};
+use remora_bridge_core::{LocalLauncher, ProcessLauncher, ProcessRole, ProcessSpec, StdioMode};
 use std::ffi::OsString;
 use tokio::io::AsyncReadExt;
 
@@ -40,7 +40,7 @@ async fn local_launcher_round_trip_stdout() {
     let status = child.wait().await.expect("wait");
     assert!(status.success(), "child exited with {status:?}");
 
-    let trimmed = buf.trim_end_matches(|c| c == '\n' || c == '\r');
+    let trimmed = buf.trim_end_matches(['\n', '\r']);
     assert_eq!(trimmed, "hello");
 }
 

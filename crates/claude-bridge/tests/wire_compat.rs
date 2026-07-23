@@ -4,9 +4,9 @@
 
 use std::path::PathBuf;
 
-use alleycat_bridge_core::ThreadIndex;
-use alleycat_claude_bridge::index::ClaudeSessionRef;
-use alleycat_codex_proto::ThreadSourceKind;
+use remora_bridge_core::ThreadIndex;
+use remora_claude_bridge::index::ClaudeSessionRef;
+use remora_codex_proto::ThreadSourceKind;
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -40,7 +40,7 @@ async fn legacy_threads_json_round_trips_through_new_index() {
     assert_eq!(row.thread_id, "abc-123");
     assert_eq!(row.cwd, "/tmp/work");
     assert_eq!(row.preview, "hello world");
-    assert_eq!(row.archived, false);
+    assert!(!row.archived);
     assert_eq!(row.created_at, 1_700_000_000_000);
     assert_eq!(row.updated_at, 1_700_000_001_000);
     assert!(matches!(row.source, ThreadSourceKind::AppServer));

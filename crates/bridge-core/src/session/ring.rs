@@ -74,7 +74,7 @@ impl ReplayRing {
     }
 
     /// The seq the *next* `push` will assign. Used by `Session::enqueue` to
-    /// stamp the payload with `_alleycat_seq` before it lands in the ring.
+    /// stamp the payload with `_remora_link_seq` before it lands in the ring.
     pub fn next_seq_peek(&self) -> u64 {
         self.next_seq
     }

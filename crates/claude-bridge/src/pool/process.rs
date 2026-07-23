@@ -33,12 +33,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::{
+use anyhow::{Context, Result, anyhow};
+use remora_bridge_core::{
     ChildProcess, ChildStderr, ChildStdin, ChildStdout, HarnessLaunchReceipt, LocalLauncher,
     ProcessLauncher, ProcessRole, ProcessSpec, StdioMode, UserEnvironmentLauncher,
     shutdown_owned_child,
 };
-use anyhow::{Context, Result, anyhow};
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, Notify, broadcast, mpsc, oneshot};
@@ -219,7 +219,7 @@ impl Drop for TaskSet {
 
 impl ClaudeProcessHandle {
     /// Spawn `claude -p ...` per `config` using the default
-    /// [`alleycat_bridge_core::LocalLauncher`]. Convenience wrapper over
+    /// [`remora_bridge_core::LocalLauncher`]. Convenience wrapper over
     /// [`Self::launch_with`] for callers that don't need a custom launcher.
     pub async fn spawn(config: ClaudeSpawnConfig) -> Result<Self> {
         let local: Arc<dyn ProcessLauncher> = Arc::new(LocalLauncher);
@@ -581,7 +581,7 @@ impl ClaudeProcessHandle {
     }
 }
 
-impl alleycat_bridge_core::pool::PoolMember for ClaudeProcessHandle {
+impl remora_bridge_core::pool::PoolMember for ClaudeProcessHandle {
     async fn shutdown(&self) {
         ClaudeProcessHandle::shutdown(self).await
     }

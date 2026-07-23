@@ -1,10 +1,9 @@
-use std::ffi::OsString;
 use std::path::PathBuf;
 
-use alleycat_amp_bridge::AmpBridge;
-use alleycat_bridge_core::serve_stdio;
+use remora_amp_bridge::AmpBridge;
+use remora_bridge_core::serve_stdio;
 #[cfg(unix)]
-use alleycat_bridge_core::{ServerOptions, serve_unix};
+use remora_bridge_core::{ServerOptions, serve_unix};
 
 enum Transport {
     Socket(PathBuf),
@@ -12,16 +11,16 @@ enum Transport {
 }
 
 fn transport_from_env_or_args() -> Transport {
-    if let Some(path) = std::env::var_os("ALLEYCAT_BRIDGE_SOCKET") {
+    if let Some(path) = std::env::var_os("REMORA_BRIDGE_SOCKET") {
         return Transport::Socket(PathBuf::from(path));
     }
     let mut args = std::env::args_os().skip(1);
     while let Some(arg) = args.next() {
-        if arg == OsString::from("--socket") || arg == OsString::from("--listen") {
+        if arg == "--socket" || arg == "--listen" {
             if let Some(path) = args.next() {
                 return Transport::Socket(PathBuf::from(path));
             }
-        } else if arg == OsString::from("--stdio") {
+        } else if arg == "--stdio" {
             return Transport::Stdio;
         }
     }

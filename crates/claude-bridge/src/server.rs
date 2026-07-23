@@ -12,11 +12,11 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context as StdContext, Poll};
 
-use alleycat_bridge_core::serve_stream_with_session;
-use alleycat_bridge_core::session::{SessionRegistry, SessionRegistryConfig};
-use alleycat_bridge_core::{LocalLauncher, ProcessLauncher};
 use anyhow::Result;
 use dashmap::DashMap;
+use remora_bridge_core::serve_stream_with_session;
+use remora_bridge_core::session::{SessionRegistry, SessionRegistryConfig};
+use remora_bridge_core::{LocalLauncher, ProcessLauncher};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::bridge::ClaudeBridge;

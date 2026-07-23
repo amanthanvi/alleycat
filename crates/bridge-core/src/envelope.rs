@@ -56,7 +56,7 @@ impl<'de> Deserialize<'de> for JsonRpcVersion {
 }
 
 // `jsonrpc` is `#[serde(default)]` so we tolerate clients (notably the codex
-// app-server test client and the litter mobile client) that omit the version
+// app-server test client and the remora mobile client) that omit the version
 // field even though JSON-RPC 2.0 requires it. Defaulting to `JsonRpcVersion`
 // transparently fills it in; explicit non-`"2.0"` values still error via the
 // custom `Deserialize` impl. Mirrors `pi-bridge`'s behavior.

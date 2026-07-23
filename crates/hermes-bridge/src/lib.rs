@@ -1,6 +1,6 @@
-//! Hermes bridge for Alleycat.
+//! Hermes bridge for Remora.
 //!
-//! Implements the `alleycat_bridge_core::Bridge` trait to expose a Hermes Agent
+//! Implements the `remora_bridge_core::Bridge` trait to expose a Hermes Agent
 //! backend (via its gateway API or CLI fallback) as a codex app-server
 //! compatible JSON-RPC endpoint.
 //!

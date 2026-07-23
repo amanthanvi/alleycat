@@ -1,5 +1,5 @@
 [package]
-name = "alleycat-pi-bridge"
+name = "remora-pi-bridge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,7 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-description = "Codex app-server façade over a `pi-coding-agent --mode rpc` process pool, used by the alleycat daemon."
+description = "Codex app-server façade over a `pi-coding-agent --mode rpc` process pool, used by the remora daemon."
 
 [package.metadata.dist]
 dist = false
@@ -19,7 +19,7 @@ license = false
 eula = false
 
 [[bin]]
-name = "alleycat-pi-bridge"
+name = "remora-pi-bridge"
 path = "src/main.rs"
 
 # Test-only stand-in for `pi-coding-agent --mode rpc`. Reads RpcCommand JSON
@@ -30,12 +30,12 @@ name = "fake-pi"
 path = "tests/support/fake_pi.rs"
 
 [lib]
-name = "alleycat_pi_bridge"
+name = "remora_pi_bridge"
 path = "src/lib.rs"
 
 [dependencies]
-alleycat-bridge-core = { workspace = true }
-alleycat-codex-proto = { workspace = true }
+remora-bridge-core = { workspace = true }
+remora-codex-proto = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }

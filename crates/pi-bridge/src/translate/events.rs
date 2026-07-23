@@ -647,15 +647,15 @@ impl EventTranslatorState {
 
     fn translate_agent_end(&mut self) -> Vec<ServerNotification> {
         let mut out = Vec::new();
-        if let Some(item) = self.open_message_item.take() {
-            if item.started {
-                out.push(self.item_completed(ThreadItem::AgentMessage {
-                    id: item.item_id,
-                    text: String::new(),
-                    phase: None,
-                    memory_citation: None,
-                }));
-            }
+        if let Some(item) = self.open_message_item.take()
+            && item.started
+        {
+            out.push(self.item_completed(ThreadItem::AgentMessage {
+                id: item.item_id,
+                text: String::new(),
+                phase: None,
+                memory_citation: None,
+            }));
         }
         if let Some(item) = self.open_reasoning_item.take() {
             out.push(self.item_completed(ThreadItem::Reasoning {
@@ -924,6 +924,7 @@ fn cap_aggregated_output(mut text: String) -> String {
 /// - `{"content": "..."}` or `{"output": "..."}`,
 /// - or a content-array `[{"type":"text","text":"..."}]` (mirrors what
 ///   the model sees in toolResult).
+///
 /// Returns `None` only when no recognizable shape is present.
 fn extract_tool_text_output(result: &Value) -> Option<String> {
     if let Some(s) = result.as_str() {

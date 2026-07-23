@@ -1,0 +1,66 @@
+[package]
+name = "remora-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+description = "Iroh-backed daemon that multiplexes local coding agents (Codex, Pi, OpenCode, Claude) onto a single QUIC connection for paired clients."
+# Distribution happens through the `remora-link` wrapper crate.
+publish = false
+
+[lib]
+name = "remora_host"
+path = "src/lib.rs"
+
+[dependencies]
+remora-acp-bridge = { workspace = true }
+remora-amp-bridge = { workspace = true }
+remora-bridge-core = { workspace = true }
+remora-claude-bridge = { workspace = true }
+remora-devin-bridge = { workspace = true }
+remora-grok-bridge = { workspace = true }
+remora-droid-bridge = { workspace = true }
+remora-hermes-bridge = { workspace = true }
+remora-opencode-bridge = { workspace = true }
+remora-pi-bridge = { workspace = true }
+remora-shell-bridge = { workspace = true }
+anyhow.workspace = true
+arc-swap.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+clap.workspace = true
+directories.workspace = true
+fd-lock.workspace = true
+futures.workspace = true
+hex.workspace = true
+hostname.workspace = true
+iroh.workspace = true
+p256 = { version = "0.13", features = ["ecdsa"] }
+qrcodegen = "1"
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle = "2.6"
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+which.workspace = true
+zeroize = "1.8"
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+mslnk = "0.1"
+
+[dev-dependencies]
+tempfile.workspace = true

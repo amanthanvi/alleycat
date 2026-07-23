@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use alleycat_bridge_core::{JsonRpcError, error_codes};
-use alleycat_codex_proto as p;
+use remora_bridge_core::{JsonRpcError, error_codes};
+use remora_codex_proto as p;
 use serde_json::{Value, json};
 use tracing::{info, instrument};
 
@@ -89,7 +89,7 @@ pub fn handle_model_list(
 ) -> p::ModelListResponse {
     let cached = bridge.all_models();
     if !cached.is_empty() {
-        let data: Vec<p::Model> = cached.iter().map(|m| acp_model_to_codex(m)).collect();
+        let data: Vec<p::Model> = cached.iter().map(acp_model_to_codex).collect();
         return p::ModelListResponse {
             data,
             next_cursor: None,
@@ -192,10 +192,10 @@ pub(crate) fn extract_models_from_config_options(session_new: &Value) -> Vec<Val
         .into_iter()
         .flatten();
     for opt in options {
-        if opt.get("id").and_then(|v| v.as_str()) == Some("model") {
-            if let Some(arr) = opt.get("options").and_then(|v| v.as_array()) {
-                return arr.clone();
-            }
+        if opt.get("id").and_then(|v| v.as_str()) == Some("model")
+            && let Some(arr) = opt.get("options").and_then(|v| v.as_array())
+        {
+            return arr.clone();
         }
     }
     Vec::new()
@@ -314,7 +314,7 @@ pub fn handle_skills_list(
 
 /// Handle thread/start request.
 pub async fn handle_thread_start(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &remora_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     client: &Arc<AcpClient>,
     params: Value,
@@ -496,7 +496,7 @@ fn timestamp_ms(value: Option<&Value>) -> i64 {
 /// priority over the agent's replay so we don't lose work-in-progress
 /// state to a stale agent-side snapshot.
 pub async fn handle_thread_resume(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &remora_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     client: &Arc<AcpClient>,
     params: Value,
@@ -559,10 +559,7 @@ pub async fn handle_thread_resume(
         rebuilt
     };
 
-    let turns_json: Vec<Value> = stored_turns
-        .iter()
-        .map(|t| stored_turn_to_json(t))
-        .collect();
+    let turns_json: Vec<Value> = stored_turns.iter().map(stored_turn_to_json).collect();
 
     let (created_at_ms, updated_at_ms) = thread_timestamps(&stored_turns);
 
@@ -715,12 +712,12 @@ fn user_input_to_acp_prompt(input: &[p::UserInput]) -> Vec<Value> {
 fn user_input_text_summary(input: &[p::UserInput]) -> String {
     input
         .iter()
-        .filter_map(|item| match item {
-            p::UserInput::Text { text, .. } => Some(text.clone()),
-            p::UserInput::Skill { name, .. } => Some(format!("/{name}")),
-            p::UserInput::Mention { name, .. } => Some(format!("@{name}")),
-            p::UserInput::Image { url } => Some(format!("[image: {url}]")),
-            p::UserInput::LocalImage { path } => Some(format!("[image: {}]", path.display())),
+        .map(|item| match item {
+            p::UserInput::Text { text, .. } => text.clone(),
+            p::UserInput::Skill { name, .. } => format!("/{name}"),
+            p::UserInput::Mention { name, .. } => format!("@{name}"),
+            p::UserInput::Image { url } => format!("[image: {url}]"),
+            p::UserInput::LocalImage { path } => format!("[image: {}]", path.display()),
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -914,7 +911,7 @@ fn build_turns_from_replay(notifications: &[Value]) -> Vec<crate::bridge::Stored
 /// original order with the same item ids that `turn/start` broadcast live,
 /// so iOS reconciliation between cached + refreshed views is a no-op.
 pub async fn handle_thread_read(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &remora_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     _client: &Arc<AcpClient>,
     params: Value,
@@ -963,7 +960,7 @@ pub async fn handle_thread_read(
 
 /// Handle thread/name/set request.
 pub fn handle_thread_name_set(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &remora_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     params: p::ThreadSetNameParams,
 ) -> p::ThreadSetNameResponse {
@@ -997,7 +994,7 @@ pub fn handle_thread_name_set(
 ///      the same items + ids.
 #[instrument(skip(ctx, bridge, client, params), fields(thread_id))]
 pub async fn handle_turn_start(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &remora_bridge_core::Conn,
     bridge: &crate::bridge::AcpBridge,
     client: &Arc<AcpClient>,
     params: Value,
@@ -1295,7 +1292,7 @@ pub async fn handle_turn_start(
 /// flows through `session/update` → `tool_call`, which the translator
 /// already renders as `commandExecution` ThreadItems.
 pub async fn handle_command_exec(
-    _ctx: &alleycat_bridge_core::Conn,
+    _ctx: &remora_bridge_core::Conn,
     _bridge: &crate::bridge::AcpBridge,
     _client: &Arc<AcpClient>,
     _params: Value,
@@ -1312,7 +1309,7 @@ pub async fn handle_command_exec(
 
 /// Handle thread/fork request.
 pub async fn handle_thread_fork(
-    ctx: &alleycat_bridge_core::Conn,
+    ctx: &remora_bridge_core::Conn,
     client: &Arc<AcpClient>,
     params: Value,
 ) -> Result<Value, JsonRpcError> {

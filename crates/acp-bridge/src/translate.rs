@@ -1,6 +1,6 @@
 //! Translation between Codex protocol and ACP protocol.
 
-use alleycat_codex_proto::lifecycle::InitializeResponse;
+use remora_codex_proto::lifecycle::InitializeResponse;
 use serde_json::Value;
 
 /// Translate Codex InitializeParams to ACP InitializeRequest.
@@ -18,7 +18,7 @@ pub fn codex_to_acp_initialize(codex_params: &Value) -> Result<Value, anyhow::Er
             "name": codex_params.get("clientInfo")
                 .and_then(|v| v.get("name"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("Alleycat"),
+                .unwrap_or("Remora"),
             "version": codex_params.get("clientInfo")
                 .and_then(|v| v.get("version"))
                 .and_then(|v| v.as_str())
@@ -43,11 +43,11 @@ pub fn acp_to_codex_initialize_result(acp_response: &Value) -> Result<Value, any
         .and_then(|v| v.as_str())
         .unwrap_or("1.0.0");
     let codex_home = std::env::var("HOME")
-        .map(|home| format!("{home}/.alleycat-acp-bridge"))
-        .unwrap_or_else(|_| "/tmp/alleycat-acp-bridge".to_string());
+        .map(|home| format!("{home}/.remora-acp-bridge"))
+        .unwrap_or_else(|_| "/tmp/remora-acp-bridge".to_string());
     Ok(serde_json::to_value(InitializeResponse {
         user_agent: format!(
-            "alleycat-acp-bridge/{} ({agent_name} {agent_version})",
+            "remora-acp-bridge/{} ({agent_name} {agent_version})",
             env!("CARGO_PKG_VERSION")
         ),
         codex_home,

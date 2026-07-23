@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use alleycat_codex_proto::{
+use remora_codex_proto::{
     AgentMessageDeltaNotification, CollabAgentState, CollabAgentStatus, CollabAgentTool,
     CollabAgentToolCallStatus, CommandExecutionOutputDeltaNotification, CommandExecutionStatus,
     DynamicToolCallArgumentsDeltaNotification, DynamicToolCallStatus, ErrorNotification,
@@ -200,11 +200,11 @@ impl EventTranslatorState {
     /// since landed.
     pub fn translate(&mut self, event: ClaudeOutbound) -> Vec<ServerNotification> {
         // Buffer events arriving before their parent `Task` `tool_use` open.
-        if let Some(parent_id) = event_parent_tool_use_id(&event) {
-            if !self.subagent_parents.contains_key(parent_id) {
-                self.buffer_subagent_event(parent_id.to_string(), event);
-                return Vec::new();
-            }
+        if let Some(parent_id) = event_parent_tool_use_id(&event)
+            && !self.subagent_parents.contains_key(parent_id)
+        {
+            self.buffer_subagent_event(parent_id.to_string(), event);
+            return Vec::new();
         }
 
         let mut out = self.translate_one(event);
@@ -557,21 +557,20 @@ impl EventTranslatorState {
                         });
                 }
             }
-            if let Some(call) = self.open_tool_calls.get_mut(&tool_id) {
-                if matches!(call.kind, CodexToolKind::CommandExecution)
-                    && !call.bash_command_terminated
-                {
-                    call.bash_command_terminated = true;
-                    out.push(ServerNotification::CommandExecutionOutputDelta(
-                        CommandExecutionOutputDeltaNotification {
-                            thread_id: self.thread_id.clone(),
-                            turn_id: self.turn_id.clone(),
-                            item_id: call.item_id.clone(),
-                            delta: "\n".to_string(),
-                            parent_item_id: parent_resolved,
-                        },
-                    ));
-                }
+            if let Some(call) = self.open_tool_calls.get_mut(&tool_id)
+                && matches!(call.kind, CodexToolKind::CommandExecution)
+                && !call.bash_command_terminated
+            {
+                call.bash_command_terminated = true;
+                out.push(ServerNotification::CommandExecutionOutputDelta(
+                    CommandExecutionOutputDeltaNotification {
+                        thread_id: self.thread_id.clone(),
+                        turn_id: self.turn_id.clone(),
+                        item_id: call.item_id.clone(),
+                        delta: "\n".to_string(),
+                        parent_item_id: parent_resolved,
+                    },
+                ));
             }
         }
         out
@@ -673,14 +672,14 @@ impl EventTranslatorState {
                 // Use the structured stdout when present; fall back to the
                 // inline text claude embeds in the content[] block.
                 let mut aggregated = stdout.unwrap_or(inline_content);
-                if let Some(stderr) = stderr {
-                    if !stderr.is_empty() {
-                        if !aggregated.is_empty() && !aggregated.ends_with('\n') {
-                            aggregated.push('\n');
-                        }
-                        aggregated.push_str("[stderr] ");
-                        aggregated.push_str(&stderr);
+                if let Some(stderr) = stderr
+                    && !stderr.is_empty()
+                {
+                    if !aggregated.is_empty() && !aggregated.ends_with('\n') {
+                        aggregated.push('\n');
                     }
+                    aggregated.push_str("[stderr] ");
+                    aggregated.push_str(&stderr);
                 }
                 let status = if is_error || interrupted {
                     CommandExecutionStatus::Failed
@@ -987,10 +986,10 @@ impl EventTranslatorState {
 
         // Pull a `model_context_window` out of `result.modelUsage` for future
         // ThreadTokenUsageUpdated notifications; ignored if absent.
-        if let Some(model_usage) = result.model_usage.as_ref() {
-            if let Some(window) = first_context_window(model_usage) {
-                self.model_context_window = Some(window);
-            }
+        if let Some(model_usage) = result.model_usage.as_ref()
+            && let Some(window) = first_context_window(model_usage)
+        {
+            self.model_context_window = Some(window);
         }
 
         // Surface every permission denial as its own error notification, even
@@ -1317,7 +1316,7 @@ fn parse_ask_user_questions(input_buf: &str) -> Vec<ToolRequestUserInputQuestion
 /// the model's `old_string` / `new_string`, so we emit
 /// `@@ -1,N +1,M @@` with the entire old as `-` and entire new as `+`.
 /// Renderers that detect added/removed lines via the `+` / `-` prefix
-/// (litter, codex's tui) work fine; renderers that need accurate line
+/// (remora, codex's tui) work fine; renderers that need accurate line
 /// numbers can still fall back to a "modified" pill.
 pub(crate) fn synthesize_file_changes(tool_name: &str, args: &Value) -> Vec<FileUpdateChange> {
     match tool_name {
@@ -1736,9 +1735,7 @@ fn json_bool_arg(args: &Value, key: &str) -> Option<bool> {
 /// Try to parse the streaming Edit/Write JSON and surface the partial
 /// `FileUpdateChange` snapshot. Returns `None` if the buffer isn't yet a
 /// valid JSON object — caller emits no notification in that case.
-fn parse_partial_file_change(
-    input_buf: &str,
-) -> Option<Vec<alleycat_codex_proto::FileUpdateChange>> {
+fn parse_partial_file_change(input_buf: &str) -> Option<Vec<remora_codex_proto::FileUpdateChange>> {
     let parsed: Value = serde_json::from_str(input_buf).ok()?;
     let path = parsed.get("file_path").or_else(|| parsed.get("path"))?;
     let path = path.as_str()?.to_string();
@@ -3012,7 +3009,7 @@ mod tests {
             } => {
                 assert!(matches!(
                     tool,
-                    alleycat_codex_proto::CollabAgentTool::SpawnAgent
+                    remora_codex_proto::CollabAgentTool::SpawnAgent
                 ));
                 assert!(matches!(status, CollabAgentToolCallStatus::InProgress));
                 assert_eq!(sender_thread_id, "th_1");
@@ -3057,7 +3054,7 @@ mod tests {
             &mut s,
             "toolu_agent",
             "Agent",
-            r#"{"prompt":"do thing","name":"ios-reader","subagent_type":"Explore","description":"find files","team_name":"litter-ios","run_in_background":true}"#,
+            r#"{"prompt":"do thing","name":"ios-reader","subagent_type":"Explore","description":"find files","team_name":"remora-ios","run_in_background":true}"#,
             "subagent done",
             false,
         );
@@ -3075,7 +3072,7 @@ mod tests {
                     .expect("agent state");
                 assert_eq!(
                     state.message.as_deref(),
-                    Some("ios-reader · Explore: find files · team litter-ios · background")
+                    Some("ios-reader · Explore: find files · team remora-ios · background")
                 );
             }
             other => panic!("expected CollabAgentToolCall, got {other:?}"),

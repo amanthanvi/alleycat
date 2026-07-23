@@ -1,5 +1,5 @@
 [package]
-name = "alleycat-shell-bridge"
+name = "remora-shell-bridge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,19 +7,19 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-description = "PTY-backed shell bridge for Alleycat JSON-RPC clients."
+description = "PTY-backed shell bridge for Remora JSON-RPC clients."
 publish = false
 
 [lib]
-name = "alleycat_shell_bridge"
+name = "remora_shell_bridge"
 path = "src/lib.rs"
 
 [[bin]]
-name = "alleycat-shell-bridge"
+name = "remora-shell-bridge"
 path = "src/main.rs"
 
 [dependencies]
-alleycat-bridge-core = { workspace = true }
+remora-bridge-core = { workspace = true }
 anyhow.workspace = true
 async-trait.workspace = true
 base64.workspace = true

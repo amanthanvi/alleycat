@@ -14,11 +14,11 @@ mod support;
 
 use std::sync::Arc;
 
-use alleycat_pi_bridge::codex_proto as p;
-use alleycat_pi_bridge::handlers;
-use alleycat_pi_bridge::index::ThreadIndex;
-use alleycat_pi_bridge::pool::PiPool;
-use alleycat_pi_bridge::state::{ConnectionState, ThreadDefaults};
+use remora_pi_bridge::codex_proto as p;
+use remora_pi_bridge::handlers;
+use remora_pi_bridge::index::ThreadIndex;
+use remora_pi_bridge::pool::PiPool;
+use remora_pi_bridge::state::{ConnectionState, ThreadDefaults};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -161,7 +161,7 @@ async fn thread_list_returns_backwards_cursor_when_data_present() {
 
 #[tokio::test]
 async fn thread_list_archived_default_excludes_archived() {
-    use alleycat_pi_bridge::index::ThreadIndex;
+    use remora_pi_bridge::index::ThreadIndex;
     let home = PiHomeFixture::new();
     home.seed_session("e-a", "sess-a", &seed_entries("pi-a", "/work/a"));
     home.seed_session("e-b", "sess-b", &seed_entries("pi-b", "/work/b"));
@@ -184,11 +184,11 @@ async fn thread_list_archived_default_excludes_archived() {
         .clone();
     let _ = index.set_archived(&to_archive, true).await.unwrap();
 
-    let pool = std::sync::Arc::new(alleycat_pi_bridge::pool::PiPool::new(fake_pi_path()));
-    let (state, _rx) = alleycat_pi_bridge::state::ConnectionState::for_test(
+    let pool = std::sync::Arc::new(remora_pi_bridge::pool::PiPool::new(fake_pi_path()));
+    let (state, _rx) = remora_pi_bridge::state::ConnectionState::for_test(
         pool,
         index,
-        alleycat_pi_bridge::state::ThreadDefaults::default(),
+        remora_pi_bridge::state::ThreadDefaults::default(),
     );
 
     // Default `archived` (None) → schema says non-archived only.

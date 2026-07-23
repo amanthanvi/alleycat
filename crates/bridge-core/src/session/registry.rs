@@ -40,7 +40,7 @@ pub struct ResolvedAttach {
     /// Differs from the client's supplied `last_seen` in one case: when the
     /// client sends no resume cursor but a prior session exists for
     /// `(node_id, agent)`, the registry auto-supplies
-    /// `last_attempted_seq.saturating_sub(1)` as the cursor — so a litter
+    /// `last_attempted_seq.saturating_sub(1)` as the cursor — so a remora
     /// client that calls plain `Connect { v, token, agent }` after an iroh
     /// drop still gets mid-turn replay without knowing about resume.
     pub effective_last_seen: Option<u64>,
@@ -141,7 +141,7 @@ impl SessionRegistry {
         // Effective cursor used to pick the replay slice. For an existing
         // session where the client didn't carry a resume hint, the server
         // auto-resumes from what its previous drainer last attempted —
-        // letting an unmodified litter client get mid-turn replay for free.
+        // letting an unmodified remora client get mid-turn replay for free.
         let effective_last_seen: Option<u64> = match (was_existing, last_seen) {
             (false, _) => None,
             (true, Some(cursor)) => Some(cursor),

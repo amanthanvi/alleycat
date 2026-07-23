@@ -27,12 +27,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::{
+use anyhow::{Context, Result, anyhow};
+use remora_bridge_core::{
     ChildProcess, ChildStderr, ChildStdin, ChildStdout, HarnessLaunchReceipt, LocalLauncher,
     ProcessLauncher, ProcessRole, ProcessSpec, StdioMode, UserEnvironmentLauncher,
     shutdown_owned_child,
 };
-use anyhow::{Context, Result, anyhow};
 use serde::Serialize;
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -165,7 +165,7 @@ impl PiProcessHandle {
 
     /// Launch `pi-coding-agent --mode rpc` through `launcher`, bound to
     /// `cwd`, and wire up the I/O tasks. `launcher` may be a `LocalLauncher`
-    /// (the daemon) or a remote launcher (Litter's SSH variant) — the
+    /// (the daemon) or a remote launcher (Remora's SSH variant) — the
     /// reader/writer/stderr pipeline downstream of the launched child is
     /// the same.
     pub async fn launch_with(
@@ -348,7 +348,7 @@ impl PiProcessHandle {
     }
 }
 
-impl alleycat_bridge_core::pool::PoolMember for PiProcessHandle {
+impl remora_bridge_core::pool::PoolMember for PiProcessHandle {
     async fn shutdown(&self) {
         PiProcessHandle::shutdown(self).await
     }
@@ -469,9 +469,8 @@ async fn deliver_response(pending: &ResponseTable, mut response: RpcResponse) {
         None => {
             let matches = guard
                 .iter()
-                .filter_map(|(id, pending)| {
-                    (pending.command == response.command).then(|| id.clone())
-                })
+                .filter(|&(_id, pending)| pending.command == response.command)
+                .map(|(id, _pending)| id.clone())
                 .collect::<Vec<_>>();
             match matches.as_slice() {
                 [id] => {

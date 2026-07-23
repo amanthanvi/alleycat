@@ -14,7 +14,7 @@
 //!   progress) are never evicted — over-cap acquires fail with
 //!   [`PoolError::Capacity`] in that case.
 //!
-//! The bookkeeping lives in [`alleycat_bridge_core::pool::ProcessPool`]; this
+//! The bookkeeping lives in [`remora_bridge_core::pool::ProcessPool`]; this
 //! module wraps it with claude-specific spawn config so callers don't have
 //! to re-implement the eviction / capacity loop.
 
@@ -25,11 +25,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use alleycat_bridge_core::pool::ProcessPool;
-pub use alleycat_bridge_core::pool::{
-    DEFAULT_IDLE_TTL, DEFAULT_MAX_PROCESSES, PoolError, ThreadId,
-};
-use alleycat_bridge_core::{LocalLauncher, ProcessLauncher};
+use remora_bridge_core::pool::ProcessPool;
+pub use remora_bridge_core::pool::{DEFAULT_IDLE_TTL, DEFAULT_MAX_PROCESSES, PoolError, ThreadId};
+use remora_bridge_core::{LocalLauncher, ProcessLauncher};
 use uuid::Uuid;
 
 pub use claude_protocol::*;
@@ -39,7 +37,7 @@ pub use process::{
 
 /// Pool-wide spawn policy. New fields go here so the per-thread
 /// `acquire_*` signatures stay flat.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PoolPolicy {
     /// When true, every spawned claude gets `--dangerously-skip-permissions`.
     /// This is an explicit compatibility override and is never inferred or
@@ -48,16 +46,6 @@ pub struct PoolPolicy {
     /// the bridge bridges every `can_use_tool` control_request to a codex
     /// `requestApproval` request on the connected client.
     pub bypass_permissions: bool,
-}
-
-impl Default for PoolPolicy {
-    fn default() -> Self {
-        Self {
-            // Safe default: retain bridge-mediated human approval. Operators
-            // may explicitly opt into bypass mode, but it is never inferred.
-            bypass_permissions: false,
-        }
-    }
 }
 
 /// Thread-safe pool of claude processes.
@@ -105,7 +93,7 @@ impl ClaudePool {
     }
 
     /// Build a pool with an explicit [`ProcessLauncher`] and policy. Used by
-    /// [`crate::bridge::ClaudeBridge`] (and Litter) to plug in a non-local
+    /// [`crate::bridge::ClaudeBridge`] (and Remora) to plug in a non-local
     /// launcher.
     pub fn with_launcher(
         claude_bin: impl Into<PathBuf>,

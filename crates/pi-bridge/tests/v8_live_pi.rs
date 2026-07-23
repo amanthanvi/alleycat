@@ -17,7 +17,7 @@
 //! export PI_BRIDGE_PI_BIN=/path/to/pi-coding-agent
 //!
 //! # 4. Run the gated test.
-//! cargo test -p alleycat-pi-bridge --test v8_live_pi -- --ignored --nocapture
+//! cargo test -p remora-pi-bridge --test v8_live_pi -- --ignored --nocapture
 //! ```
 //!
 //! The test self-skips (passes silently) when prerequisites are missing,
@@ -28,10 +28,10 @@
 //!
 //! End-to-end through the deployed bridge binary:
 //!
-//! 1. Spawn `target/{profile}/alleycat-pi-bridge` as a child process,
+//! 1. Spawn `target/{profile}/remora-pi-bridge` as a child process,
 //!    talk to it via stdio JSON-RPC (the same surface a codex client
 //!    sees on the wire).
-//! 2. Send `initialize` → expect `userAgent: alleycat-pi-bridge/<v>`.
+//! 2. Send `initialize` → expect `userAgent: remora-pi-bridge/<v>`.
 //! 3. Send `thread/start { cwd: $PWD }` → expect a real
 //!    `ThreadStartResponse` with a fresh `thread.id`.
 //! 4. Send `turn/start { input:[{type:"text",text:"What's 2+2?"}] }`
@@ -65,7 +65,7 @@ async fn live_pi_completes_a_simple_arithmetic_turn() {
         return;
     };
 
-    let bridge_bin = PathBuf::from(env!("CARGO_BIN_EXE_alleycat-pi-bridge"));
+    let bridge_bin = PathBuf::from(env!("CARGO_BIN_EXE_remora-pi-bridge"));
     eprintln!(
         "v8_live_pi: bridge={} pi_bin={} provider_keys={:?}",
         bridge_bin.display(),
@@ -83,7 +83,7 @@ async fn live_pi_completes_a_simple_arithmetic_turn() {
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .expect("spawn alleycat-pi-bridge");
+        .expect("spawn remora-pi-bridge");
 
     let mut stdin = child.stdin.take().expect("child stdin");
     let stdout = child.stdout.take().expect("child stdout");
@@ -114,7 +114,7 @@ async fn live_pi_completes_a_simple_arithmetic_turn() {
     let init = expect_response(&mut reader, 1, Duration::from_secs(5)).await;
     let user_agent = init["result"]["userAgent"].as_str().unwrap_or("");
     assert!(
-        user_agent.starts_with("alleycat-pi-bridge/"),
+        user_agent.starts_with("remora-pi-bridge/"),
         "userAgent should identify the bridge, got: {user_agent:?}"
     );
 

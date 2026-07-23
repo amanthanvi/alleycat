@@ -2,12 +2,12 @@
 
 Operator-facing smoke scripts. Not part of `cargo test` — driven by hand
 when you want to exercise the bridge against the real `claude` CLI (or a
-running `alleycat` daemon).
+running `remora` daemon).
 
 | Script | What it does |
 |---|---|
-| `stdio_smoke.sh` | Spawns `cargo run -p alleycat-claude-bridge` in stdio mode and feeds it a scripted JSON-RPC sequence (`initialize` → `thread/start` → `turn/start "say hi in one word"` → wait for `turn/completed`). Talks to **real claude**. Requires `claude` on `$PATH` and `jq`. |
-| `daemon_smoke.sh` | Connects to a running `alleycat` daemon via the iroh client (`alleycat probe`) and runs the same flow against the `claude` agent. Requires `alleycat serve` running in another terminal. |
+| `stdio_smoke.sh` | Spawns `cargo run -p remora-claude-bridge` in stdio mode and feeds it a scripted JSON-RPC sequence (`initialize` → `thread/start` → `turn/start "say hi in one word"` → wait for `turn/completed`). Talks to **real claude**. Requires `claude` on `$PATH` and `jq`. |
+| `daemon_smoke.sh` | Connects to a running `remora` daemon via the iroh client (`remora probe`) and runs the same flow against the `claude` agent. Requires `remora serve` running in another terminal. |
 
 ## Running
 
@@ -16,7 +16,7 @@ running `alleycat` daemon).
 ./crates/claude-bridge/tests/smoke/stdio_smoke.sh
 
 # daemon-mediated:
-target/release/alleycat serve     # in another terminal
+target/release/remora serve     # in another terminal
 ./crates/claude-bridge/tests/smoke/daemon_smoke.sh
 ```
 

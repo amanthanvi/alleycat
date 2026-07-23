@@ -6,7 +6,7 @@
   "author": "The Remora Link Authors",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/amanthanvi/alleycat.git",
+    "url": "git+https://github.com/amanthanvi/remora-link.git",
     "directory": "npm/remora-link"
   },
   "homepage": "https://github.com/amanthanvi/remora",

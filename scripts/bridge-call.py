@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Drive an alleycat bridge binary in socket mode and call one method.
+"""Drive an remora bridge binary in socket mode and call one method.
 
-Spawns one of `alleycat-pi-bridge` / `alleycat-claude-bridge` /
-`alleycat-opencode-bridge` listening on a temp Unix socket, connects to
+Spawns one of `remora-pi-bridge` / `remora-claude-bridge` /
+`remora-opencode-bridge` listening on a temp Unix socket, connects to
 it, performs the JSON-RPC `initialize` handshake, sends one request,
 prints any notifications + the response, then exits.
 
@@ -40,9 +40,9 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 BRIDGES = {
-    "pi": "alleycat-pi-bridge",
-    "claude": "alleycat-claude-bridge",
-    "opencode": "alleycat-opencode-bridge",
+    "pi": "remora-pi-bridge",
+    "claude": "remora-claude-bridge",
+    "opencode": "remora-opencode-bridge",
 }
 
 
@@ -104,7 +104,7 @@ def shorthand_params(method: str, args: list[str]) -> dict[str, Any] | None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="bridge-call",
-        description="Invoke a JSON-RPC method on an alleycat bridge over a temp Unix socket.",
+        description="Invoke a JSON-RPC method on an remora bridge over a temp Unix socket.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

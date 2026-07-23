@@ -556,6 +556,9 @@ pub enum SourceOrigin {
 /// `extension_ui_request` / `extension_error` envelopes pi emits from RPC mode.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
+// This mirrors Pi's externally defined event union. Boxing selected variants
+// would make every consumer pay conversion complexity at the wire boundary.
+#[allow(clippy::large_enum_variant)]
 pub enum PiEvent {
     // Agent lifecycle
     AgentStart,
@@ -1137,6 +1140,8 @@ pub struct ModelCost {
 /// per-id response oneshot or the broadcast event channel.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
+// Keep the externally defined response/event envelope directly deserializable.
+#[allow(clippy::large_enum_variant)]
 pub enum PiOutboundMessage {
     /// `{type:"response", command, success, ...}` — must come first because
     /// `PiEvent` would otherwise match the `type:"response"` literal as an

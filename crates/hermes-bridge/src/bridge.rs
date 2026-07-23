@@ -13,42 +13,42 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::process::Command;
 
-use alleycat_bridge_core::{Bridge, Conn, JsonRpcError};
-use alleycat_codex_proto::account::{
+use remora_bridge_core::{Bridge, Conn, JsonRpcError};
+use remora_codex_proto::account::{
     Account, CancelLoginAccountResponse, CancelLoginAccountStatus, GetAccountRateLimitsResponse,
     GetAccountResponse, LoginAccountResponse, LogoutAccountResponse,
 };
-use alleycat_codex_proto::command_exec::{
+use remora_codex_proto::command_exec::{
     CommandExecParams, CommandExecResizeResponse, CommandExecResponse,
     CommandExecTerminateResponse, CommandExecWriteResponse,
 };
-use alleycat_codex_proto::common::{
+use remora_codex_proto::common::{
     ApprovalsReviewer, AskForApproval, ReasoningEffort, SandboxMode, SessionSource, ThreadStatus,
     TurnStatus,
 };
-use alleycat_codex_proto::config::{
+use remora_codex_proto::config::{
     ConfigReadResponse, ConfigRequirementsReadResponse, ConfigWriteResponse, WriteStatus,
 };
-use alleycat_codex_proto::items::{ThreadItem, UserInput};
-use alleycat_codex_proto::lifecycle::InitializeResponse;
-use alleycat_codex_proto::mcp::{
+use remora_codex_proto::items::{ThreadItem, UserInput};
+use remora_codex_proto::lifecycle::InitializeResponse;
+use remora_codex_proto::mcp::{
     ListMcpServerStatusResponse, McpServerOauthLoginResponse, McpServerRefreshResponse,
 };
-use alleycat_codex_proto::model::ModelListResponse;
-use alleycat_codex_proto::notifications::{
+use remora_codex_proto::model::ModelListResponse;
+use remora_codex_proto::notifications::{
     AgentMessageDeltaNotification, ItemCompletedNotification, ItemStartedNotification,
     ThreadIdOnly, ThreadNameUpdatedNotification, ThreadStartedNotification,
     TurnCompletedNotification, TurnStartedNotification,
 };
-use alleycat_codex_proto::skills::{SkillsConfigWriteResponse, SkillsListResponse};
-use alleycat_codex_proto::thread::{
+use remora_codex_proto::skills::{SkillsConfigWriteResponse, SkillsListResponse};
+use remora_codex_proto::thread::{
     Thread, ThreadArchiveParams, ThreadArchiveResponse, ThreadBackgroundTerminalsCleanResponse,
     ThreadForkParams, ThreadForkResponse, ThreadListParams, ThreadListResponse,
     ThreadLoadedListResponse, ThreadReadParams, ThreadReadResponse, ThreadResumeParams,
     ThreadResumeResponse, ThreadRollbackParams, ThreadSetNameParams, ThreadSetNameResponse,
     ThreadStartParams, ThreadStartResponse, ThreadTurnsListParams, ThreadTurnsListResponse, Turn,
 };
-use alleycat_codex_proto::turn::{TurnInterruptResponse, TurnStartParams, TurnStartResponse};
+use remora_codex_proto::turn::{TurnInterruptResponse, TurnStartParams, TurnStartResponse};
 
 use crate::api_client::{CreateRunRequest, DEFAULT_API_KEY_ENV, HermesApiClient};
 use crate::config::HermesBridgeConfig;
@@ -279,7 +279,7 @@ impl HermesBridge {
             } else {
                 TurnStatus::Completed
             };
-            turn.error = error.map(|message| alleycat_codex_proto::common::TurnError {
+            turn.error = error.map(|message| remora_codex_proto::common::TurnError {
                 message,
                 codex_error_info: None,
                 additional_details: None,
@@ -302,9 +302,9 @@ impl HermesBridge {
 impl Bridge for HermesBridge {
     async fn initialize(&self, ctx: &Conn, params: Value) -> Result<Value, JsonRpcError> {
         ctx.set_initialize_capabilities(&params);
-        let home = directories::ProjectDirs::from("", "", "alleycat")
+        let home = directories::ProjectDirs::from("", "", "remora")
             .map(|d| d.data_dir().to_string_lossy().to_string())
-            .unwrap_or_else(|| "/tmp/alleycat".to_string());
+            .unwrap_or_else(|| "/tmp/remora".to_string());
         to_value(InitializeResponse {
             user_agent: format!("hermes-bridge/{}", env!("CARGO_PKG_VERSION")),
             codex_home: home,
@@ -515,8 +515,9 @@ impl HermesBridge {
         ctx: &Conn,
         params: Value,
     ) -> Result<Value, JsonRpcError> {
-        let p: alleycat_codex_proto::thread::ThreadUnarchiveParams = serde_json::from_value(params)
-            .map_err(|e| rpc_error(-32602, format!("Invalid params: {e}")))?;
+        let p: remora_codex_proto::thread::ThreadUnarchiveParams =
+            serde_json::from_value(params)
+                .map_err(|e| rpc_error(-32602, format!("Invalid params: {e}")))?;
         let Some(binding) = self.index.set_archived(&p.thread_id, false, epoch_ms()) else {
             return error_response(-32602, "thread not found");
         };
@@ -527,7 +528,7 @@ impl HermesBridge {
                 thread_id: p.thread_id.clone(),
             },
         );
-        to_value(alleycat_codex_proto::thread::ThreadUnarchiveResponse {
+        to_value(remora_codex_proto::thread::ThreadUnarchiveResponse {
             thread: Self::binding_to_thread(&binding),
         })
     }
@@ -775,17 +776,17 @@ impl HermesBridge {
 impl HermesBridge {
     async fn handle_model_list(&self, _ctx: &Conn, _params: Value) -> Result<Value, JsonRpcError> {
         to_value(ModelListResponse {
-            data: vec![alleycat_codex_proto::model::Model {
+            data: vec![remora_codex_proto::model::Model {
                 id: "hermes-agent".to_string(),
                 model: "hermes-agent".to_string(),
                 upgrade: None,
                 upgrade_info: None,
                 availability_nux: None,
                 display_name: "Hermes Agent".to_string(),
-                description: "Hermes Agent via Alleycat bridge".to_string(),
+                description: "Hermes Agent via Remora bridge".to_string(),
                 hidden: false,
                 supported_reasoning_efforts: vec![
-                    alleycat_codex_proto::model::ReasoningEffortOption {
+                    remora_codex_proto::model::ReasoningEffortOption {
                         reasoning_effort: ReasoningEffort::Medium,
                         description: "Default Hermes reasoning effort".to_string(),
                     },
@@ -1069,7 +1070,7 @@ impl HermesBridge {
         _ctx: &Conn,
         _params: Value,
     ) -> Result<Value, JsonRpcError> {
-        to_value(alleycat_codex_proto::account::FeedbackUploadResponse::default())
+        to_value(remora_codex_proto::account::FeedbackUploadResponse::default())
     }
 }
 
@@ -1466,7 +1467,7 @@ impl HermesBridge {
             status,
             error: error
                 .clone()
-                .map(|message| alleycat_codex_proto::common::TurnError {
+                .map(|message| remora_codex_proto::common::TurnError {
                     message,
                     codex_error_info: None,
                     additional_details: None,

@@ -5,7 +5,7 @@
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/amanthanvi/alleycat.git",
+    "url": "git+https://github.com/amanthanvi/remora-link.git",
     "directory": "npm/platforms/linux-arm64"
   },
   "os": ["linux"],

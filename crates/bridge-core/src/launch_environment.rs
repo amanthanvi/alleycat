@@ -1,6 +1,6 @@
 //! User launch environment resolution.
 //!
-//! Alleycat is often started by launchd/systemd, but users expect spawned
+//! Remora is often started by launchd/systemd, but users expect spawned
 //! agents to behave as if they were launched from their normal terminal in the
 //! target project. This module centralises that policy so every bridge-managed
 //! process gets the same treatment instead of each agent growing bespoke shell
@@ -29,7 +29,7 @@ type EnvMap = HashMap<OsString, OsString>;
 const DEFAULT_PROVIDER_TIMEOUT: Duration = Duration::from_secs(8);
 const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(30);
 
-/// Controls how Alleycat reconstructs the user's terminal-like environment for
+/// Controls how Remora reconstructs the user's terminal-like environment for
 /// child processes.
 #[derive(Debug, Clone)]
 pub struct LaunchEnvironmentPolicy {
@@ -50,7 +50,7 @@ pub struct LaunchEnvironmentPolicy {
 impl Default for LaunchEnvironmentPolicy {
     fn default() -> Self {
         Self {
-            // Capture the user's terminal PATH even when Alleycat was started
+            // Capture the user's terminal PATH even when Remora was started
             // by launchd/systemd. The shell runs from HOME, never the target
             // project, so project-local providers remain trust-gated below.
             load_user_shell: true,

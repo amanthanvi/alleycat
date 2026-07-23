@@ -11,7 +11,7 @@ is intentionally narrower than the security architecture that motivated it:
 manual locator codes, SPAKE2, grant delegation, peer administration, recovery,
 and device-key rotation are not part of this version.
 
-The legacy `alleycat/1` bearer protocol is a separate compatibility lane. A v2
+The legacy `remora/1` bearer protocol is a separate compatibility lane. A v2
 client must never send a v1 token on this ALPN and must never retry v1 after a
 v2 failure.
 

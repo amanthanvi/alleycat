@@ -1,5 +1,5 @@
 //! Codex target — spawn `codex app-server` over stdio. Cleaner than going
-//! through the alleycat TCP passthrough because (a) `codex` ships with both
+//! through the remora TCP passthrough because (a) `codex` ships with both
 //! a `--listen ws://...` and a stdio mode, and we don't have to negotiate
 //! WebSocket framing for the test, and (b) we get a fresh process per test
 //! with no port collisions.

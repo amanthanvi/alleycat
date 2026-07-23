@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use alleycat_bridge_core::{Bridge, Conn, JsonRpcError};
 use async_trait::async_trait;
+use remora_bridge_core::{Bridge, Conn, JsonRpcError};
 use serde_json::{Value, json};
 
 use crate::index::{OpencodeBinding, ThreadIndex};
@@ -32,9 +32,9 @@ pub struct OpencodeBridge {
 
 impl OpencodeBridge {
     pub async fn new(runtime: OpencodeRuntime) -> anyhow::Result<Self> {
-        let state_dir = std::env::var_os("ALLEYCAT_BRIDGE_STATE_DIR")
+        let state_dir = std::env::var_os("REMORA_BRIDGE_STATE_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir().join("alleycat-opencode-bridge"));
+            .unwrap_or_else(|| std::env::temp_dir().join("remora-opencode-bridge"));
         Self::new_with_state_dir(runtime, state_dir).await
     }
 
@@ -436,7 +436,7 @@ impl OpencodeBridge {
 
     async fn handle_thread_list(&self, params: Value) -> Result<Value, JsonRpcError> {
         // Parse the codex `ThreadListParams` shape. Opencode-bridge stays in
-        // raw-Value style (no `alleycat-codex-proto` dep) to match the rest of
+        // raw-Value style (no `remora-codex-proto` dep) to match the rest of
         // this file, but the filter/sort/pagination semantics mirror the
         // typed handlers in pi/claude-bridge.
         let cwd_filter = parse_cwd_filter_value(params.get("cwd"));
@@ -466,7 +466,7 @@ impl OpencodeBridge {
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
             .and_then(decode_list_cursor);
-        let limit = alleycat_bridge_core::resolve_list_limit(
+        let limit = remora_bridge_core::resolve_list_limit(
             params
                 .get("limit")
                 .and_then(Value::as_u64)
@@ -799,8 +799,8 @@ impl Bridge for OpencodeBridge {
     async fn initialize(&self, ctx: &Conn, params: Value) -> Result<Value, JsonRpcError> {
         ctx.set_initialize_capabilities(&params);
         Ok(json!({
-            "userAgent": concat!("alleycat-opencode-bridge/", env!("CARGO_PKG_VERSION")),
-            "codexHome": std::env::temp_dir().join("alleycat-opencode-bridge").to_string_lossy(),
+            "userAgent": concat!("remora-opencode-bridge/", env!("CARGO_PKG_VERSION")),
+            "codexHome": std::env::temp_dir().join("remora-opencode-bridge").to_string_lossy(),
             "platformFamily": std::env::consts::FAMILY,
             "platformOs": std::env::consts::OS
         }))
@@ -1153,7 +1153,7 @@ fn apply_revert_to_messages(mut messages: Vec<Value>, revert: &Value) -> Vec<Val
 
 fn binding_to_thread(binding: &OpencodeBinding) -> Value {
     let path = format!("opencode://session/{}", binding.session_id);
-    let git_info = alleycat_bridge_core::git_info_for_cwd(&binding.directory)
+    let git_info = remora_bridge_core::git_info_for_cwd(&binding.directory)
         .and_then(|info| serde_json::to_value(info).ok())
         .unwrap_or(Value::Null);
     json!({
@@ -1171,7 +1171,7 @@ fn binding_to_thread(binding: &OpencodeBinding) -> Value {
         "status": {"type": "notLoaded"},
         "path": path,
         "cwd": binding.directory,
-        "cliVersion": concat!("alleycat-opencode-bridge/", env!("CARGO_PKG_VERSION")),
+        "cliVersion": concat!("remora-opencode-bridge/", env!("CARGO_PKG_VERSION")),
         "source": "appServer",
         "threadSource": null,
         "gitInfo": git_info,
@@ -1528,10 +1528,10 @@ fn fold_assistant_into_turn(turn: &mut Value, message: &Value, tool_context: Too
     // Earlier-message errors stay (we only overwrite if the new one is
     // non-null), so a successful assistant after a failed retry doesn't
     // mask the failure history.
-    if let Some(err) = opencode_message_error(message) {
-        if let Some(slot) = turn.get_mut("error") {
-            *slot = err;
-        }
+    if let Some(err) = opencode_message_error(message)
+        && let Some(slot) = turn.get_mut("error")
+    {
+        *slot = err;
     }
 }
 

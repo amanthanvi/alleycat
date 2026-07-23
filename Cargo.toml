@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/acp-bridge",
-    "crates/alleycat",
+    "crates/remora-host",
     "crates/amp-bridge",
     "crates/bridge-conformance",
     "crates/bridge-core",
@@ -23,30 +23,30 @@ resolver = "3"
 edition = "2024"
 license = "GPL-3.0-only"
 version = "0.1.0"
-authors = ["The Alleycat Authors"]
-repository = "https://github.com/dnakov/alleycat"
-homepage = "https://github.com/dnakov/alleycat"
+authors = ["The Remora Link Authors"]
+repository = "https://github.com/amanthanvi/remora-link"
+homepage = "https://github.com/amanthanvi/remora"
 readme = "README.md"
 
 [workspace.metadata.remora-link]
-upstream = "https://github.com/dnakov/alleycat"
+source-provenance = "NOTICE.md"
 distribution = "npm"
 maintenance-policy = "crates/remora-link/MAINTENANCE.md"
 
 [workspace.dependencies]
-alleycat-acp-bridge = { path = "crates/acp-bridge", version = "0.1" }
-alleycat-bridge-core = { path = "crates/bridge-core", version = "0.1" }
-alleycat-amp-bridge = { path = "crates/amp-bridge", version = "0.1" }
-alleycat-codex-proto = { path = "crates/codex-proto", version = "0.1" }
-alleycat-claude-bridge = { path = "crates/claude-bridge", version = "0.1" }
-alleycat-claude-remote-control = { path = "crates/claude-remote-control", version = "0.1" }
-alleycat-devin-bridge = { path = "crates/devin-bridge", version = "0.1" }
-alleycat-grok-bridge = { path = "crates/grok-bridge", version = "0.1" }
-alleycat-droid-bridge = { path = "crates/droid-bridge", version = "0.1" }
-alleycat-hermes-bridge = { path = "crates/hermes-bridge", version = "0.1" }
-alleycat-opencode-bridge = { path = "crates/opencode-bridge", version = "0.1" }
-alleycat-pi-bridge = { path = "crates/pi-bridge", version = "0.1" }
-alleycat-shell-bridge = { path = "crates/shell-bridge", version = "0.1" }
+remora-acp-bridge = { path = "crates/acp-bridge", version = "0.1" }
+remora-bridge-core = { path = "crates/bridge-core", version = "0.1" }
+remora-amp-bridge = { path = "crates/amp-bridge", version = "0.1" }
+remora-codex-proto = { path = "crates/codex-proto", version = "0.1" }
+remora-claude-bridge = { path = "crates/claude-bridge", version = "0.1" }
+remora-claude-remote-control = { path = "crates/claude-remote-control", version = "0.1" }
+remora-devin-bridge = { path = "crates/devin-bridge", version = "0.1" }
+remora-grok-bridge = { path = "crates/grok-bridge", version = "0.1" }
+remora-droid-bridge = { path = "crates/droid-bridge", version = "0.1" }
+remora-hermes-bridge = { path = "crates/hermes-bridge", version = "0.1" }
+remora-opencode-bridge = { path = "crates/opencode-bridge", version = "0.1" }
+remora-pi-bridge = { path = "crates/pi-bridge", version = "0.1" }
+remora-shell-bridge = { path = "crates/shell-bridge", version = "0.1" }
 anyhow = "1"
 arc-swap = "1"
 async-trait = "0.1"

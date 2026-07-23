@@ -21,7 +21,7 @@ use chrono::{DateTime, Utc};
 use tokio::sync::Mutex;
 
 use crate::index::PiSessionRef;
-use alleycat_bridge_core::{IndexEntry, ListFilter, ListPage, ListSort, ThreadIndexHandle};
+use remora_bridge_core::{IndexEntry, ListFilter, ListPage, ListSort, ThreadIndexHandle};
 
 /// `ThreadIndexHandle` impl whose methods all do nothing.
 #[derive(Debug, Default, Clone, Copy)]

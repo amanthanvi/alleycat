@@ -64,7 +64,7 @@ pub fn fake_pi_path() -> PathBuf {
 }
 
 /// Tempdir-backed `~/.pi/agent` stand-in. Honors pi's `PI_CODING_AGENT_DIR`
-/// env-var override (resolved by [`alleycat_pi_bridge::index::pi_session_scan::pi_agent_dir`])
+/// env-var override (resolved by [`remora_pi_bridge::index::pi_session_scan::pi_agent_dir`])
 /// so the bridge points at our seeded sessions instead of the real `$HOME`.
 ///
 /// The fixture restores the previous env var on drop so concurrent tests that

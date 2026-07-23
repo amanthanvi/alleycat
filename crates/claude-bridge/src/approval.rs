@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use uuid::Uuid;
 
-use alleycat_codex_proto::{
+use remora_codex_proto::{
     CommandExecutionRequestApprovalParams, FileChangeRequestApprovalParams, JsonRpcMessage,
     JsonRpcRequest, JsonRpcVersion, RequestId, ToolRequestUserInputAnswer,
     ToolRequestUserInputParams, ToolRequestUserInputQuestion, ToolRequestUserInputResponse,
@@ -345,7 +345,7 @@ pub fn reply_control_error(
 
 /// Send `item/tool/requestUserInput` to the codex client and await the
 /// per-question answers. Mirrors pi-bridge's
-/// [`alleycat_pi_bridge::approval::request_user_input`] (file:
+/// [`remora_pi_bridge::approval::request_user_input`] (file:
 /// `crates/pi-bridge/src/approval.rs:286`). The caller is responsible for
 /// translating the returned `ToolRequestUserInputAnswer` map back into
 /// the source process's expected reply payload (for the claude bridge,

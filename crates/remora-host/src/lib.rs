@@ -2,6 +2,7 @@
 
 mod agent_manifest;
 mod agents;
+pub mod catalog;
 mod cli;
 mod config;
 mod daemon;

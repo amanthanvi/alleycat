@@ -139,6 +139,16 @@ pub fn pairing_v2_file() -> anyhow::Result<PathBuf> {
     Ok(state_dir()?.join("pairing-v2.json"))
 }
 
+/// `<state_dir>/command-center-v1.json` — Host-owned durable work catalog.
+pub fn host_catalog_file() -> anyhow::Result<PathBuf> {
+    Ok(state_dir()?.join("command-center-v1.json"))
+}
+
+/// `<state_dir>/command-center-v1.journal.jsonl` — bounded recovery journal.
+pub fn host_catalog_journal_file() -> anyhow::Result<PathBuf> {
+    Ok(state_dir()?.join("command-center-v1.journal.jsonl"))
+}
+
 /// `<state_dir>/host.lock` — single-instance fd lock.
 pub fn host_lock_file() -> anyhow::Result<PathBuf> {
     Ok(state_dir()?.join("host.lock"))

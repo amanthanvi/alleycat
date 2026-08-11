@@ -1,4 +1,5 @@
 pub mod codex_resolver;
+pub mod command_center;
 pub mod envelope;
 pub mod framing;
 pub mod git_info;

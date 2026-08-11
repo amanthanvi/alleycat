@@ -29,6 +29,12 @@ pub async fn run(args: StatusArgs) -> anyhow::Result<()> {
         info.version.as_deref().unwrap_or("<unknown>")
     );
     println!("  node id:           {}", info.node_id);
+    if let Some(host_id) = info.host_id.as_deref() {
+        println!("  host id:           {host_id}");
+    }
+    if let Some(generation) = info.catalog_generation {
+        println!("  catalog generation:{generation:>12}");
+    }
     println!(
         "  relay:             {}",
         info.relay.as_deref().unwrap_or("<iroh default>")
@@ -82,6 +88,8 @@ async fn offline_status() -> anyhow::Result<StatusInfo> {
         uptime_secs: 0,
         agents: agent_list,
         version: Some(crate::binary_version().to_string()),
+        host_id: None,
+        catalog_generation: None,
     })
 }
 

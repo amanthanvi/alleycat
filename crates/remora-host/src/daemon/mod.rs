@@ -70,6 +70,11 @@ pub async fn run() -> anyhow::Result<()> {
     let pairing = crate::pairing_v2::PairingManager::load_default()
         .await
         .context("loading Remora Link device grants")?;
+    let catalog = Arc::new(
+        crate::catalog::HostCatalogStore::open_default()
+            .context("loading command-center Host catalog")?,
+    );
+    info!(host_id = %catalog.snapshot().host_id.as_str(), "loaded command-center catalog");
 
     let endpoint = host::bind_endpoint(secret_key.clone()).await?;
     let agents = AgentManager::new(Arc::clone(&config))
@@ -102,6 +107,7 @@ pub async fn run() -> anyhow::Result<()> {
         endpoint: endpoint.clone(),
         node_id,
         pairing,
+        catalog,
         started_at,
         shutdown: Arc::clone(&shutdown),
     });
@@ -140,6 +146,7 @@ struct DaemonState {
     endpoint: iroh::Endpoint,
     node_id: String,
     pairing: crate::pairing_v2::PairingManager,
+    catalog: Arc<crate::catalog::HostCatalogStore>,
     started_at: Instant,
     shutdown: Arc<Notify>,
 }
@@ -222,6 +229,7 @@ async fn dispatch(daemon: Arc<DaemonState>, request: Request) -> (Response, Opti
 
 async fn handle_status(daemon: &DaemonState) -> Response {
     let cfg = daemon.config.load();
+    let catalog = daemon.catalog.snapshot();
     let info = StatusInfo {
         pid: std::process::id(),
         node_id: daemon.node_id.clone(),
@@ -232,6 +240,8 @@ async fn handle_status(daemon: &DaemonState) -> Response {
         uptime_secs: daemon.started_at.elapsed().as_secs(),
         agents: daemon.agents.list_agents().await,
         version: Some(crate::binary_version().to_string()),
+        host_id: Some(catalog.host_id.0),
+        catalog_generation: Some(catalog.generation),
     };
     Response::ok_with(&info).unwrap_or_else(|e| Response::err(e.to_string()))
 }

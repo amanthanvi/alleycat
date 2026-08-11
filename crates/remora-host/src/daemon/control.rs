@@ -166,6 +166,13 @@ pub struct StatusInfo {
     /// for forwards compatibility with daemons that predate the field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// Stable random command-center Host identity. Absent on older daemons and
+    /// offline status paths that must not create state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_id: Option<String>,
+    /// Last durable catalog generation; contains no work content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog_generation: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

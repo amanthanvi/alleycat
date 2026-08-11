@@ -28,3 +28,7 @@ rather than a transient npm cache path.
 
 See [MAINTENANCE.md](MAINTENANCE.md) for ownership, validation, and the
 relay-provider boundary.
+
+The daemon also owns Remora's durable command-center catalog. Its identity,
+atomic commit, recovery, and privacy contract is documented in
+[`../../docs/command-center-catalog.md`](../../docs/command-center-catalog.md).

@@ -554,7 +554,9 @@ async fn handle_stream_v2(
         }
         RequestV2::CommandCenterStatus { .. } => {
             info!(conn, "command_center_status");
-            let status = catalog.snapshot().command_center_status();
+            let status = catalog
+                .snapshot()
+                .command_center_status_for_runtime_ids(&authorization.selected_runtime_ids);
             write_json_frame_bounded(
                 &mut send,
                 &ResponseV2::command_center_status(status),

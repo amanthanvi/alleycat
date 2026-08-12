@@ -264,10 +264,11 @@ allowlist.
 
 Requires `inspect_runtimes`. The response contains only the opaque Host ID,
 catalog generation, typed Host capability availability, and bounded provider
-instance readiness/models/capabilities. Its serialized payload is limited to
-512 KiB at catalog ingress. It never includes Projects, paths, Working Copies,
-Threads, Turns, scripts, browser state, prompts, transcripts, or credentials;
-those require separate workspace contracts and grants.
+instance readiness/models/capabilities filtered to the grant's selected runtime
+IDs. Its serialized payload is limited to 512 KiB at catalog ingress. It never
+includes Projects, paths, Working Copies, Threads, Turns, scripts, browser
+state, prompts, transcripts, or credentials; those require separate workspace
+contracts and grants.
 
 ### `restart_agent`
 

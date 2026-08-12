@@ -716,6 +716,17 @@ impl HostCatalogV1 {
             provider_instances: self.provider_instances.clone(),
         }
     }
+
+    pub fn command_center_status_for_runtime_ids(
+        &self,
+        runtime_ids: &[String],
+    ) -> HostCommandCenterStatusV1 {
+        let mut status = self.command_center_status();
+        status
+            .provider_instances
+            .retain(|provider| runtime_ids.contains(&provider.runtime_id));
+        status
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -943,5 +954,32 @@ mod tests {
                 "provider readiness reason"
             ))
         );
+    }
+
+    #[test]
+    fn command_center_status_filters_provider_instances_to_the_runtime_grant() {
+        let mut catalog = HostCatalogV1::empty(
+            HostId("abcdefghijklmnopqrstuv".to_string()),
+            HostCapabilitiesV1::all_unknown(2, "0.1.0"),
+        );
+        for (instance_id, runtime_id) in [
+            ("bcdefghijklmnopqrstuvw", "codex"),
+            ("cdefghijklmnopqrstuvwx", "claude"),
+        ] {
+            catalog.provider_instances.push(ProviderInstance {
+                instance_id: ProviderInstanceId(instance_id.to_string()),
+                runtime_id: runtime_id.to_string(),
+                display_name: runtime_id.to_string(),
+                readiness: ProviderReadiness::Ready,
+                readiness_reason: None,
+                continuation_group_id: runtime_id.to_string(),
+                models: Vec::new(),
+                capabilities: RuntimeCapabilitiesV1::all_unknown(),
+            });
+        }
+
+        let status = catalog.command_center_status_for_runtime_ids(&["codex".to_string()]);
+        assert_eq!(status.provider_instances.len(), 1);
+        assert_eq!(status.provider_instances[0].runtime_id, "codex");
     }
 }

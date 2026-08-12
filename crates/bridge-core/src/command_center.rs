@@ -17,6 +17,8 @@ pub const MAX_WORKING_COPIES: usize = 20_000;
 pub const MAX_THREADS: usize = 20_000;
 pub const MAX_TURNS: usize = 200_000;
 pub const MAX_PROVIDER_INSTANCES: usize = 64;
+pub const MAX_MODELS_PER_PROVIDER: usize = 256;
+pub const MAX_COMMAND_CENTER_STATUS_BYTES: usize = 512 * 1024;
 
 macro_rules! opaque_id {
     ($name:ident) => {
@@ -233,6 +235,53 @@ impl HostCapabilitiesV1 {
                 minimum_client_version.into(),
                 MAX_DISPLAY_LABEL_BYTES,
             ),
+        }
+    }
+}
+
+impl RuntimeCapabilitiesV1 {
+    pub fn all_unknown() -> Self {
+        let unknown = || FeatureAvailability::unknown("Provider has not declared this capability");
+        Self {
+            version: 1,
+            thread_lifecycle: ThreadLifecycleCapabilitiesV1 {
+                create: unknown(),
+                resume: unknown(),
+                linked_child: unknown(),
+                archive: unknown(),
+            },
+            turns: TurnCapabilitiesV1 {
+                text: unknown(),
+                images: unknown(),
+                file_references: unknown(),
+                interrupt: unknown(),
+                queued_follow_up: unknown(),
+            },
+            interaction: InteractionCapabilitiesV1 {
+                approvals: unknown(),
+                structured_input: unknown(),
+                ask_question: unknown(),
+                plans: unknown(),
+                todos: unknown(),
+            },
+            models: ModelCapabilitiesV1 {
+                list: unknown(),
+                select_before_first_send: unknown(),
+                reasoning_configuration: unknown(),
+            },
+            permissions: PermissionCapabilitiesV1 {
+                sandbox_modes: unknown(),
+                declared_controls: unknown(),
+            },
+            history: HistoryCapabilitiesV1 {
+                pagination: unknown(),
+                hydration: unknown(),
+                context_window_metrics: unknown(),
+            },
+            voice: VoiceCapabilitiesV1 {
+                realtime_voice: unknown(),
+                transcript_handoff: unknown(),
+            },
         }
     }
 }
@@ -459,6 +508,19 @@ pub struct HostCatalogV1 {
     pub browser_profiles: Vec<BrowserProfileRecord>,
 }
 
+/// Bounded status safe to disclose under the existing runtime-inspection
+/// grant. Project names, paths, Threads, scripts, and browser state are
+/// deliberately excluded until dedicated workspace grants exist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostCommandCenterStatusV1 {
+    pub version: u32,
+    pub host_id: HostId,
+    pub catalog_generation: u64,
+    pub host_capabilities: HostCapabilitiesV1,
+    pub provider_instances: Vec<ProviderInstance>,
+}
+
 impl HostCatalogV1 {
     pub fn empty(host_id: HostId, host_capabilities: HostCapabilitiesV1) -> Self {
         Self {
@@ -499,6 +561,7 @@ impl HostCatalogV1 {
             self.provider_instances.len(),
             MAX_PROVIDER_INSTANCES,
         )?;
+        validate_host_capabilities(&self.host_capabilities)?;
 
         unique_ids(
             "project_id",
@@ -604,9 +667,23 @@ impl HostCatalogV1 {
             validate_label("provider display name", &provider.display_name)?;
             validate_label("runtime_id", &provider.runtime_id)?;
             validate_label("continuation_group_id", &provider.continuation_group_id)?;
-            if provider.capabilities.version != 1 || provider.models.len() > 256 {
-                return Err(CatalogValidationError::InvalidCapability);
+            validate_optional_label("provider readiness reason", &provider.readiness_reason)?;
+            validate_runtime_capabilities(&provider.capabilities)?;
+            validate_count(
+                "provider models",
+                provider.models.len(),
+                MAX_MODELS_PER_PROVIDER,
+            )?;
+            for model in &provider.models {
+                validate_label("provider model_id", &model.model_id)?;
+                validate_label("provider model display name", &model.display_name)?;
             }
+        }
+        let status_size = serde_json::to_vec(&self.command_center_status())
+            .map_err(|_| CatalogValidationError::InvalidCapability)?
+            .len();
+        if status_size > MAX_COMMAND_CENTER_STATUS_BYTES {
+            return Err(CatalogValidationError::StatusTooLarge);
         }
         Ok(())
     }
@@ -629,6 +706,16 @@ impl HostCatalogV1 {
         }
         Ok(())
     }
+
+    pub fn command_center_status(&self) -> HostCommandCenterStatusV1 {
+        HostCommandCenterStatusV1 {
+            version: 1,
+            host_id: self.host_id.clone(),
+            catalog_generation: self.generation,
+            host_capabilities: self.host_capabilities.clone(),
+            provider_instances: self.provider_instances.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -647,6 +734,8 @@ pub enum CatalogValidationError {
     InvalidReference(&'static str),
     #[error("invalid capability declaration")]
     InvalidCapability,
+    #[error("command-center status exceeds its serialized bound")]
+    StatusTooLarge,
     #[error("invalid catalog generation transition")]
     InvalidGeneration,
     #[error("thread runtime and provider instance are immutable")]
@@ -698,6 +787,88 @@ fn validate_label(kind: &'static str, value: &str) -> Result<(), CatalogValidati
     .ok_or(CatalogValidationError::InvalidText(kind))
 }
 
+fn validate_optional_label(
+    kind: &'static str,
+    value: &Option<String>,
+) -> Result<(), CatalogValidationError> {
+    if let Some(value) = value {
+        validate_label(kind, value)?;
+    }
+    Ok(())
+}
+
+fn validate_availability(value: &FeatureAvailability) -> Result<(), CatalogValidationError> {
+    validate_optional_label("capability reason", &value.reason)
+}
+
+fn validate_host_capabilities(
+    capabilities: &HostCapabilitiesV1,
+) -> Result<(), CatalogValidationError> {
+    if capabilities.version != 1 {
+        return Err(CatalogValidationError::InvalidCapability);
+    }
+    validate_label(
+        "minimum client version",
+        &capabilities.minimum_client_version,
+    )?;
+    for availability in [
+        &capabilities.project_registration,
+        &capabilities.project_clone,
+        &capabilities.confined_file_reads,
+        &capabilities.terminal_sessions,
+        &capabilities.curated_git,
+        &capabilities.worktrees,
+        &capabilities.checkpoints,
+        &capabilities.safe_rewind,
+        &capabilities.trusted_provisioning_scripts,
+        &capabilities.browser_preview,
+        &capabilities.browser_automation,
+        &capabilities.managed_power,
+        &capabilities.signed_link_updates,
+        &capabilities.diagnostics,
+    ] {
+        validate_availability(availability)?;
+    }
+    Ok(())
+}
+
+fn validate_runtime_capabilities(
+    capabilities: &RuntimeCapabilitiesV1,
+) -> Result<(), CatalogValidationError> {
+    if capabilities.version != 1 {
+        return Err(CatalogValidationError::InvalidCapability);
+    }
+    for availability in [
+        &capabilities.thread_lifecycle.create,
+        &capabilities.thread_lifecycle.resume,
+        &capabilities.thread_lifecycle.linked_child,
+        &capabilities.thread_lifecycle.archive,
+        &capabilities.turns.text,
+        &capabilities.turns.images,
+        &capabilities.turns.file_references,
+        &capabilities.turns.interrupt,
+        &capabilities.turns.queued_follow_up,
+        &capabilities.interaction.approvals,
+        &capabilities.interaction.structured_input,
+        &capabilities.interaction.ask_question,
+        &capabilities.interaction.plans,
+        &capabilities.interaction.todos,
+        &capabilities.models.list,
+        &capabilities.models.select_before_first_send,
+        &capabilities.models.reasoning_configuration,
+        &capabilities.permissions.sandbox_modes,
+        &capabilities.permissions.declared_controls,
+        &capabilities.history.pagination,
+        &capabilities.history.hydration,
+        &capabilities.history.context_window_metrics,
+        &capabilities.voice.realtime_voice,
+        &capabilities.voice.transcript_handoff,
+    ] {
+        validate_availability(availability)?;
+    }
+    Ok(())
+}
+
 fn validate_path(kind: &'static str, value: &str) -> Result<(), CatalogValidationError> {
     (!value.is_empty() && value.len() <= MAX_PATH_BYTES && !value.chars().any(char::is_control))
         .then_some(())
@@ -733,5 +904,44 @@ mod tests {
         let reason = availability.reason.expect("reason");
         assert!(reason.len() <= MAX_DISPLAY_LABEL_BYTES);
         assert!(reason.is_char_boundary(reason.len()));
+    }
+
+    #[test]
+    fn command_center_status_excludes_workspace_content() {
+        let catalog = HostCatalogV1::empty(
+            HostId("abcdefghijklmnopqrstuv".to_string()),
+            HostCapabilitiesV1::all_unknown(2, "0.1.0"),
+        );
+        let value = serde_json::to_value(catalog.command_center_status()).unwrap();
+        assert_eq!(value["version"], 1);
+        assert!(value.get("projects").is_none());
+        assert!(value.get("threads").is_none());
+        assert!(value.get("trusted_scripts").is_none());
+        assert!(value.get("browser_profiles").is_none());
+    }
+
+    #[test]
+    fn command_center_status_fields_are_bounded_at_catalog_ingress() {
+        let mut catalog = HostCatalogV1::empty(
+            HostId("abcdefghijklmnopqrstuv".to_string()),
+            HostCapabilitiesV1::all_unknown(2, "0.1.0"),
+        );
+        catalog.provider_instances.push(ProviderInstance {
+            instance_id: ProviderInstanceId("bcdefghijklmnopqrstuvw".to_string()),
+            runtime_id: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            readiness: ProviderReadiness::Unavailable,
+            readiness_reason: Some("x".repeat(MAX_DISPLAY_LABEL_BYTES + 1)),
+            continuation_group_id: "codex".to_string(),
+            models: Vec::new(),
+            capabilities: RuntimeCapabilitiesV1::all_unknown(),
+        });
+
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::InvalidText(
+                "provider readiness reason"
+            ))
+        );
     }
 }

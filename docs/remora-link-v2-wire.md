@@ -83,7 +83,7 @@ The only accepted scope strings are:
 
 | JSON value | Authority |
 | --- | --- |
-| `inspect_runtimes` | List the grant's allowed runtimes. |
+| `inspect_runtimes` | List the grant's allowed runtimes and read bounded Host/provider capability status. |
 | `connect_runtime` | Attach to a runtime named in the grant. |
 | `restart_runtime` | Restart a runtime named in the grant. |
 | `self_revoke` | Revoke or roll back this credential with a fresh proof. |
@@ -250,6 +250,24 @@ An unattended first claim returns `enrolled` after the grant is durable.
 
 Requires `inspect_runtimes`. The host filters `agents` to the grant's runtime
 allowlist.
+
+### `command_center_status`
+
+```json
+{
+  "op": "command_center_status",
+  "v": 2,
+  "credential_id": "<credential id>",
+  "client_nonce": "<32 random bytes>"
+}
+```
+
+Requires `inspect_runtimes`. The response contains only the opaque Host ID,
+catalog generation, typed Host capability availability, and bounded provider
+instance readiness/models/capabilities. Its serialized payload is limited to
+512 KiB at catalog ingress. It never includes Projects, paths, Working Copies,
+Threads, Turns, scripts, browser state, prompts, transcripts, or credentials;
+those require separate workspace contracts and grants.
 
 ### `restart_agent`
 
@@ -428,7 +446,8 @@ field(operation_payload_hash[32])
 ```
 
 The exact operation strings are `inspect_invitation`, `enroll`, `list_agents`,
-`restart_agent`, `connect`, `revoke_self`, and `rollback_enrollment`.
+`command_center_status`, `restart_agent`, `connect`, `revoke_self`, and
+`rollback_enrollment`.
 
 ### Operation payload hash
 
@@ -441,6 +460,7 @@ this table:
 | `inspect_invitation` | invitation ID, invitation secret, device public key |
 | `enroll` | invitation ID, secret, device name, public key, canonical runtime list, canonical scope list, enrollment idempotency key |
 | `list_agents` | no fields |
+| `command_center_status` | no fields |
 | `restart_agent` | runtime ID, restart idempotency key, decimal command sequence |
 | `connect` | runtime ID, decimal `last_seq` or empty string |
 | `revoke_self` | revoke idempotency key |

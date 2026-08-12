@@ -88,9 +88,12 @@ pub async fn run() -> anyhow::Result<()> {
         let endpoint = endpoint.clone();
         let agents = agents.clone();
         let pairing = pairing.clone();
+        let catalog = Arc::clone(&catalog);
         let shutdown = Arc::clone(&shutdown);
         tokio::spawn(async move {
-            if let Err(error) = host::accept_loop(endpoint, agents, pairing, shutdown).await {
+            if let Err(error) =
+                host::accept_loop(endpoint, agents, pairing, catalog, shutdown).await
+            {
                 error!("iroh accept loop ended: {error:#}");
             }
         })

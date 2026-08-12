@@ -27,6 +27,8 @@ use tokio::sync::{Mutex, OwnedRwLockReadGuard, RwLock};
 use tracing::{error, warn};
 use zeroize::{Zeroize, Zeroizing};
 
+use remora_bridge_core::command_center::HostCommandCenterStatusV1;
+
 use crate::protocol::{AgentInfo, SessionInfo};
 
 pub const PROTOCOL_VERSION_V2: u32 = 2;
@@ -247,6 +249,11 @@ pub enum RequestV2 {
         credential_id: String,
         client_nonce: String,
     },
+    CommandCenterStatus {
+        v: u32,
+        credential_id: String,
+        client_nonce: String,
+    },
     RestartAgent {
         v: u32,
         credential_id: String,
@@ -284,6 +291,7 @@ impl RequestV2 {
             Self::InspectInvitation { v, .. }
             | Self::Enroll { v, .. }
             | Self::ListAgents { v, .. }
+            | Self::CommandCenterStatus { v, .. }
             | Self::RestartAgent { v, .. }
             | Self::Connect { v, .. }
             | Self::RevokeSelf { v, .. }
@@ -296,6 +304,7 @@ impl RequestV2 {
             Self::InspectInvitation { .. } => "inspect_invitation",
             Self::Enroll { .. } => "enroll",
             Self::ListAgents { .. } => "list_agents",
+            Self::CommandCenterStatus { .. } => "command_center_status",
             Self::RestartAgent { .. } => "restart_agent",
             Self::Connect { .. } => "connect",
             Self::RevokeSelf { .. } => "revoke_self",
@@ -308,6 +317,7 @@ impl RequestV2 {
             Self::InspectInvitation { client_nonce, .. }
             | Self::Enroll { client_nonce, .. }
             | Self::ListAgents { client_nonce, .. }
+            | Self::CommandCenterStatus { client_nonce, .. }
             | Self::RestartAgent { client_nonce, .. }
             | Self::Connect { client_nonce, .. }
             | Self::RevokeSelf { client_nonce, .. }
@@ -319,6 +329,7 @@ impl RequestV2 {
         match self {
             Self::InspectInvitation { .. } | Self::Enroll { .. } => None,
             Self::ListAgents { credential_id, .. }
+            | Self::CommandCenterStatus { credential_id, .. }
             | Self::RestartAgent { credential_id, .. }
             | Self::Connect { credential_id, .. }
             | Self::RevokeSelf { credential_id, .. }
@@ -353,6 +364,7 @@ impl RequestV2 {
                 idempotency_key,
             ]),
             Self::ListAgents { .. } => hash_operation_payload(&[]),
+            Self::CommandCenterStatus { .. } => hash_operation_payload(&[]),
             Self::RestartAgent {
                 agent,
                 idempotency_key,
@@ -691,6 +703,8 @@ pub struct ResponseV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agents: Option<Vec<AgentInfo>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_center_status: Option<HostCommandCenterStatusV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_code: Option<ErrorCodeV2>,
@@ -710,6 +724,7 @@ impl ResponseV2 {
             revocation: None,
             restart: None,
             agents: None,
+            command_center_status: None,
             session: None,
             error_code: None,
             error: None,
@@ -759,6 +774,7 @@ impl ResponseV2 {
             revocation: Some(value),
             restart: None,
             agents: None,
+            command_center_status: None,
             session: None,
             error_code: Some(ErrorCodeV2::OutcomeUnknown),
             error: Some(ErrorCodeV2::OutcomeUnknown.message().to_string()),
@@ -780,6 +796,7 @@ impl ResponseV2 {
                 revocation: None,
                 restart: Some(value),
                 agents: None,
+                command_center_status: None,
                 session: None,
                 error_code: Some(ErrorCodeV2::OutcomeUnknown),
                 error: Some(ErrorCodeV2::OutcomeUnknown.message().to_string()),
@@ -789,6 +806,12 @@ impl ResponseV2 {
     pub fn agents(value: Vec<AgentInfo>) -> Self {
         Self {
             agents: Some(value),
+            ..Self::success()
+        }
+    }
+    pub fn command_center_status(value: HostCommandCenterStatusV1) -> Self {
+        Self {
+            command_center_status: Some(value),
             ..Self::success()
         }
     }
@@ -809,6 +832,7 @@ impl ResponseV2 {
             revocation: None,
             restart: None,
             agents: None,
+            command_center_status: None,
             session: None,
             error_code: Some(code),
             error: Some(code.message().to_string()),
@@ -2972,7 +2996,8 @@ fn validate_request(request: &RequestV2) -> Result<(), RedeemError> {
                 return Err(RedeemError::Unavailable);
             }
         }
-        RequestV2::ListAgents { credential_id, .. } => {
+        RequestV2::ListAgents { credential_id, .. }
+        | RequestV2::CommandCenterStatus { credential_id, .. } => {
             if !valid_opaque_id(credential_id) {
                 return Err(RedeemError::Unavailable);
             }
@@ -3029,7 +3054,9 @@ fn validate_request(request: &RequestV2) -> Result<(), RedeemError> {
 
 fn enforce_operation_grant(request: &RequestV2, device: &DeviceRecord) -> Result<(), RedeemError> {
     let (scope, runtime) = match request {
-        RequestV2::ListAgents { .. } => (DeviceScopeV2::InspectRuntimes, None),
+        RequestV2::ListAgents { .. } | RequestV2::CommandCenterStatus { .. } => {
+            (DeviceScopeV2::InspectRuntimes, None)
+        }
         RequestV2::RestartAgent { agent, .. } => (DeviceScopeV2::RestartRuntime, Some(agent)),
         RequestV2::Connect { agent, .. } => (DeviceScopeV2::ConnectRuntime, Some(agent)),
         _ => return Err(RedeemError::Unavailable),
@@ -4195,6 +4222,35 @@ mod tests {
             .unwrap();
         assert_eq!(enrolled.granted_scopes, scopes);
 
+        let status_request = RequestV2::CommandCenterStatus {
+            v: PROTOCOL_VERSION_V2,
+            credential_id: enrolled.device_id.clone(),
+            client_nonce: random_urlsafe(NONCE_BYTES),
+        };
+        let status_challenge = ProofChallengeV2::issue_at(enrolled.device_id.clone(), 0, now + 2);
+        let status_proof =
+            sign_request(&status_request, &status_challenge, &key, &host_id, "phone");
+        manager
+            .authorize_operation_at(
+                &status_request,
+                &status_challenge,
+                &status_proof,
+                &host_id,
+                "phone",
+                now + 2,
+            )
+            .await
+            .unwrap();
+        let mut no_inspection_grant =
+            manager.state.lock().await.devices[&enrolled.device_id].clone();
+        no_inspection_grant
+            .granted_scopes
+            .retain(|scope| *scope != DeviceScopeV2::InspectRuntimes);
+        assert_eq!(
+            enforce_operation_grant(&status_request, &no_inspection_grant),
+            Err(RedeemError::Unavailable)
+        );
+
         let allowed = RequestV2::Connect {
             v: PROTOCOL_VERSION_V2,
             credential_id: enrolled.device_id.clone(),
@@ -4202,10 +4258,10 @@ mod tests {
             agent: "codex".to_string(),
             resume: None,
         };
-        let challenge = ProofChallengeV2::issue_at(enrolled.device_id.clone(), 0, now + 2);
+        let challenge = ProofChallengeV2::issue_at(enrolled.device_id.clone(), 0, now + 3);
         let proof = sign_request(&allowed, &challenge, &key, &host_id, "phone");
         let context = manager
-            .authorize_operation_at(&allowed, &challenge, &proof, &host_id, "phone", now + 2)
+            .authorize_operation_at(&allowed, &challenge, &proof, &host_id, "phone", now + 3)
             .await
             .unwrap();
         assert!(manager.is_authorization_current(&context, "phone").await);
@@ -4218,7 +4274,7 @@ mod tests {
             idempotency_key: "restart-operation-1".to_string(),
             command_sequence: 1,
         };
-        let denied_challenge = ProofChallengeV2::issue_at(enrolled.device_id, 0, now + 3);
+        let denied_challenge = ProofChallengeV2::issue_at(enrolled.device_id, 0, now + 4);
         let denied_proof = sign_request(&denied, &denied_challenge, &key, &host_id, "phone");
         assert_eq!(
             manager
@@ -4228,7 +4284,7 @@ mod tests {
                     &denied_proof,
                     &host_id,
                     "phone",
-                    now + 3
+                    now + 4
                 )
                 .await,
             Err(RedeemError::Unavailable)

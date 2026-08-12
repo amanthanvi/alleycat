@@ -12,6 +12,7 @@ use tokio::sync::{Notify, Semaphore};
 use tracing::{info, warn};
 
 use crate::agents::AgentManager;
+use crate::catalog::HostCatalogStore;
 use crate::framing::{
     MAX_REMORA_LINK_V2_FRAME_BYTES, read_json_frame_bounded, write_json_frame_bounded,
 };
@@ -138,6 +139,7 @@ pub async fn accept_loop(
     endpoint: Endpoint,
     agents: AgentManager,
     pairing: PairingManager,
+    catalog: Arc<HostCatalogStore>,
     shutdown: Arc<Notify>,
 ) -> anyhow::Result<()> {
     let host_endpoint_id = endpoint.id().to_string();
@@ -162,6 +164,7 @@ pub async fn accept_loop(
                 };
                 let agents = agents.clone();
                 let pairing = pairing.clone();
+                let catalog = Arc::clone(&catalog);
                 let host_endpoint_id = host_endpoint_id.clone();
                 let global_stream_slots = Arc::clone(&stream_slots);
                 let endpoint_connection_quota = Arc::clone(&endpoint_connection_quota);
@@ -207,6 +210,7 @@ pub async fn accept_loop(
                                 };
                                 let agents = agents.clone();
                                 let pairing = pairing.clone();
+                                let catalog = Arc::clone(&catalog);
                                 let host_endpoint_id = host_endpoint_id.clone();
                                 let node_id = node_id.clone();
                                 let protocol = protocol.clone();
@@ -220,6 +224,7 @@ pub async fn accept_loop(
                                             recv,
                                             agents,
                                             pairing,
+                                            catalog,
                                             conn_id,
                                             host_endpoint_id,
                                             node_id,
@@ -255,6 +260,7 @@ async fn handle_stream_v2(
     mut recv: iroh::endpoint::RecvStream,
     agents: AgentManager,
     pairing: PairingManager,
+    catalog: Arc<HostCatalogStore>,
     conn: usize,
     host_endpoint_id: String,
     authenticated_client_endpoint_id: String,
@@ -478,6 +484,7 @@ async fn handle_stream_v2(
             };
         }
         RequestV2::ListAgents { .. }
+        | RequestV2::CommandCenterStatus { .. }
         | RequestV2::RestartAgent { .. }
         | RequestV2::Connect { .. } => {}
     }
@@ -540,6 +547,17 @@ async fn handle_stream_v2(
             write_json_frame_bounded(
                 &mut send,
                 &ResponseV2::agents(agents),
+                MAX_REMORA_LINK_V2_FRAME_BYTES,
+            )
+            .await?;
+            Ok(())
+        }
+        RequestV2::CommandCenterStatus { .. } => {
+            info!(conn, "command_center_status");
+            let status = catalog.snapshot().command_center_status();
+            write_json_frame_bounded(
+                &mut send,
+                &ResponseV2::command_center_status(status),
                 MAX_REMORA_LINK_V2_FRAME_BYTES,
             )
             .await?;

@@ -3,7 +3,7 @@
 //! These types are provider-neutral and Host-owned. They intentionally avoid
 //! paths, provider names, and display labels as identity.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -16,8 +16,15 @@ pub const MAX_PROJECTS: usize = 250;
 pub const MAX_WORKING_COPIES: usize = 20_000;
 pub const MAX_THREADS: usize = 20_000;
 pub const MAX_TURNS: usize = 200_000;
+pub const MAX_PROVIDER_SESSIONS: usize = MAX_THREADS;
+pub const MAX_CHECKPOINTS: usize = MAX_TURNS;
 pub const MAX_PROVIDER_INSTANCES: usize = 64;
 pub const MAX_MODELS_PER_PROVIDER: usize = 256;
+pub const MAX_ROUTE_HANDLES: usize = MAX_THREADS;
+pub const MAX_TRUSTED_SCRIPTS: usize = 1_024;
+pub const MAX_BROWSER_PROFILES: usize = MAX_PROJECTS;
+pub const MAX_COMMAND_ARGUMENTS: usize = 64;
+pub const MAX_DECLARED_ENVIRONMENT: usize = 128;
 pub const MAX_COMMAND_CENTER_STATUS_BYTES: usize = 512 * 1024;
 
 macro_rules! opaque_id {
@@ -557,9 +564,26 @@ impl HostCatalogV1 {
         validate_count("threads", self.threads.len(), MAX_THREADS)?;
         validate_count("turns", self.turns.len(), MAX_TURNS)?;
         validate_count(
+            "provider sessions",
+            self.provider_sessions.len(),
+            MAX_PROVIDER_SESSIONS,
+        )?;
+        validate_count("checkpoints", self.checkpoints.len(), MAX_CHECKPOINTS)?;
+        validate_count(
             "provider_instances",
             self.provider_instances.len(),
             MAX_PROVIDER_INSTANCES,
+        )?;
+        validate_count("route handles", self.route_handles.len(), MAX_ROUTE_HANDLES)?;
+        validate_count(
+            "trusted scripts",
+            self.trusted_scripts.len(),
+            MAX_TRUSTED_SCRIPTS,
+        )?;
+        validate_count(
+            "browser profiles",
+            self.browser_profiles.len(),
+            MAX_BROWSER_PROFILES,
         )?;
         validate_host_capabilities(&self.host_capabilities)?;
 
@@ -586,6 +610,18 @@ impl HostCatalogV1 {
             self.turns.iter().map(|record| record.turn_id.as_str()),
         )?;
         unique_ids(
+            "provider_session_id",
+            self.provider_sessions
+                .iter()
+                .map(|record| record.provider_session_id.as_str()),
+        )?;
+        unique_ids(
+            "checkpoint_id",
+            self.checkpoints
+                .iter()
+                .map(|record| record.checkpoint_id.as_str()),
+        )?;
+        unique_ids(
             "provider_instance_id",
             self.provider_instances
                 .iter()
@@ -608,20 +644,48 @@ impl HostCatalogV1 {
             .iter()
             .map(|record| record.summary.working_copy_id.as_str())
             .collect::<HashSet<_>>();
-        let provider_ids = self
+        let working_copy_projects = self
+            .working_copies
+            .iter()
+            .map(|record| {
+                (
+                    record.summary.working_copy_id.as_str(),
+                    record.summary.project_id.as_str(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let provider_runtime_ids = self
             .provider_instances
             .iter()
-            .map(|record| record.instance_id.as_str())
-            .collect::<HashSet<_>>();
+            .map(|record| (record.instance_id.as_str(), record.runtime_id.as_str()))
+            .collect::<HashMap<_, _>>();
         let thread_ids = self
             .threads
             .iter()
             .map(|record| record.summary.thread_id.as_str())
             .collect::<HashSet<_>>();
+        let turn_threads = self
+            .turns
+            .iter()
+            .map(|record| (record.turn_id.as_str(), record.thread_id.as_str()))
+            .collect::<HashMap<_, _>>();
+        let route_threads = self
+            .route_handles
+            .iter()
+            .map(|record| (record.route_handle.as_str(), record.thread_id.as_str()))
+            .collect::<HashMap<_, _>>();
+        let checkpoint_threads = self
+            .checkpoints
+            .iter()
+            .map(|record| (record.checkpoint_id.as_str(), record.thread_id.as_str()))
+            .collect::<HashMap<_, _>>();
 
         for project in &self.projects {
             validate_label("project display name", &project.summary.display_name)?;
             validate_path("project root", &project.root_path)?;
+            validate_label("project root identity", &project.root_identity)?;
+            validate_optional_label("project default branch", &project.summary.default_branch)?;
+            validate_timestamp("project created_at_ms", project.created_at_ms)?;
             if project.summary.host_id != self.host_id {
                 return Err(CatalogValidationError::InvalidReference("project host_id"));
             }
@@ -632,14 +696,41 @@ impl HostCatalogV1 {
                 &working_copy.summary.display_name,
             )?;
             validate_path("working copy root", &working_copy.root_path)?;
-            if !project_ids.contains(working_copy.summary.project_id.as_str()) {
-                return Err(CatalogValidationError::InvalidReference(
-                    "working copy project_id",
-                ));
+            validate_optional_label("working copy branch", &working_copy.summary.branch)?;
+            validate_optional_label(
+                "working copy base revision",
+                &working_copy.summary.base_revision,
+            )?;
+            validate_timestamp("working copy created_at_ms", working_copy.created_at_ms)?;
+            validate_optional_timestamp(
+                "working copy archived_at_ms",
+                working_copy.archived_at_ms,
+            )?;
+            if !project_ids.contains(working_copy.summary.project_id.as_str())
+                || working_copy
+                    .archived_at_ms
+                    .is_some_and(|archived| archived < working_copy.created_at_ms)
+            {
+                return Err(CatalogValidationError::InvalidReference("working copy"));
             }
         }
         for thread in &self.threads {
             validate_label("thread title", &thread.summary.title)?;
+            validate_label("thread runtime_id", &thread.summary.runtime_id)?;
+            validate_timestamp("thread created_at_ms", thread.created_at_ms)?;
+            validate_timestamp("thread updated_at_ms", thread.summary.updated_at_ms)?;
+            validate_optional_timestamp("thread archived_at_ms", thread.archived_at_ms)?;
+            let provider_runtime_id = provider_runtime_ids
+                .get(thread.summary.provider_instance_id.as_str())
+                .copied();
+            let working_copy_project_id = thread
+                .summary
+                .working_copy_id
+                .as_ref()
+                .and_then(|id| working_copy_projects.get(id.as_str()).copied());
+            let route_thread_id = route_threads
+                .get(thread.summary.route_handle.as_str())
+                .copied();
             if thread.summary.host_id != self.host_id
                 || thread
                     .summary
@@ -651,15 +742,35 @@ impl HostCatalogV1 {
                     .working_copy_id
                     .as_ref()
                     .is_some_and(|id| !working_copy_ids.contains(id.as_str()))
-                || !provider_ids.contains(thread.summary.provider_instance_id.as_str())
+                || thread.summary.working_copy_id.is_some()
+                    && working_copy_project_id
+                        != thread.summary.project_id.as_ref().map(ProjectId::as_str)
+                || provider_runtime_id != Some(thread.summary.runtime_id.as_str())
+                || route_thread_id != Some(thread.summary.thread_id.as_str())
+                || thread.linked_parent_thread_id.as_ref().is_some_and(|id| {
+                    id == &thread.summary.thread_id || !thread_ids.contains(id.as_str())
+                })
+                || thread
+                    .archived_at_ms
+                    .is_some_and(|archived| archived < thread.created_at_ms)
             {
                 return Err(CatalogValidationError::InvalidReference("thread"));
             }
         }
         for turn in &self.turns {
             validate_id("turn_id", turn.turn_id.as_str())?;
-            if !thread_ids.contains(turn.thread_id.as_str()) {
-                return Err(CatalogValidationError::InvalidReference("turn thread_id"));
+            validate_timestamp("turn started_at_ms", turn.started_at_ms)?;
+            validate_optional_timestamp("turn completed_at_ms", turn.completed_at_ms)?;
+            if !thread_ids.contains(turn.thread_id.as_str())
+                || turn
+                    .completed_at_ms
+                    .is_some_and(|completed| completed < turn.started_at_ms)
+                || turn.checkpoint_id.as_ref().is_some_and(|checkpoint_id| {
+                    checkpoint_threads.get(checkpoint_id.as_str()).copied()
+                        != Some(turn.thread_id.as_str())
+                })
+            {
+                return Err(CatalogValidationError::InvalidReference("turn"));
             }
         }
         for provider in &self.provider_instances {
@@ -674,9 +785,95 @@ impl HostCatalogV1 {
                 provider.models.len(),
                 MAX_MODELS_PER_PROVIDER,
             )?;
+            let mut model_ids = HashSet::new();
             for model in &provider.models {
                 validate_label("provider model_id", &model.model_id)?;
                 validate_label("provider model display name", &model.display_name)?;
+                if !model_ids.insert(model.model_id.as_str()) {
+                    return Err(CatalogValidationError::DuplicateId("provider model_id"));
+                }
+            }
+        }
+        for session in &self.provider_sessions {
+            validate_optional_label(
+                "provider resumable session_id",
+                &session.resumable_session_id,
+            )?;
+            validate_timestamp("provider session updated_at_ms", session.updated_at_ms)?;
+            let thread_provider_id = self
+                .threads
+                .iter()
+                .find(|thread| thread.summary.thread_id == session.thread_id)
+                .map(|thread| thread.summary.provider_instance_id.as_str());
+            if thread_provider_id != Some(session.provider_instance_id.as_str()) {
+                return Err(CatalogValidationError::InvalidReference("provider session"));
+            }
+        }
+        for checkpoint in &self.checkpoints {
+            validate_git_oid(&checkpoint.commit_oid)?;
+            validate_checkpoint_reference(&checkpoint.reference_name)?;
+            validate_timestamp("checkpoint created_at_ms", checkpoint.created_at_ms)?;
+            if !thread_ids.contains(checkpoint.thread_id.as_str())
+                || checkpoint.turn_id.as_ref().is_some_and(|turn_id| {
+                    turn_threads.get(turn_id.as_str()).copied()
+                        != Some(checkpoint.thread_id.as_str())
+                })
+            {
+                return Err(CatalogValidationError::InvalidReference("checkpoint"));
+            }
+        }
+        for route in &self.route_handles {
+            validate_timestamp("route created_at_ms", route.created_at_ms)?;
+            validate_optional_timestamp("route expires_at_ms", route.expires_at_ms)?;
+            if !thread_ids.contains(route.thread_id.as_str())
+                || route
+                    .expires_at_ms
+                    .is_some_and(|expires| expires < route.created_at_ms)
+            {
+                return Err(CatalogValidationError::InvalidReference("route handle"));
+            }
+        }
+        let mut trusted_script_hashes = HashSet::new();
+        for script in &self.trusted_scripts {
+            validate_sha256("trusted script hash", &script.trust_hash)?;
+            validate_count(
+                "trusted script command",
+                script.command.len(),
+                MAX_COMMAND_ARGUMENTS,
+            )?;
+            validate_count(
+                "trusted script environment",
+                script.declared_environment.len(),
+                MAX_DECLARED_ENVIRONMENT,
+            )?;
+            if script.command.is_empty()
+                || script
+                    .command
+                    .iter()
+                    .any(|argument| validate_argument("trusted script argument", argument).is_err())
+                || script
+                    .declared_environment
+                    .iter()
+                    .any(|value| validate_argument("trusted script environment", value).is_err())
+                || !project_ids.contains(script.project_id.as_str())
+                || !trusted_script_hashes.insert(script.trust_hash.as_str())
+            {
+                return Err(CatalogValidationError::InvalidReference("trusted script"));
+            }
+            validate_path(
+                "trusted script working directory",
+                &script.working_directory,
+            )?;
+            validate_label("trusted script trigger", &script.trigger)?;
+        }
+        let mut browser_project_ids = HashSet::new();
+        for profile in &self.browser_profiles {
+            validate_path("browser profile directory", &profile.profile_directory)?;
+            validate_timestamp("browser profile updated_at_ms", profile.updated_at_ms)?;
+            if !project_ids.contains(profile.project_id.as_str())
+                || !browser_project_ids.insert(profile.project_id.as_str())
+            {
+                return Err(CatalogValidationError::InvalidReference("browser profile"));
             }
         }
         let status_size = serde_json::to_vec(&self.command_center_status())
@@ -886,6 +1083,53 @@ fn validate_path(kind: &'static str, value: &str) -> Result<(), CatalogValidatio
         .ok_or(CatalogValidationError::InvalidText(kind))
 }
 
+fn validate_argument(kind: &'static str, value: &str) -> Result<(), CatalogValidationError> {
+    (!value.is_empty() && value.len() <= MAX_PATH_BYTES && !value.chars().any(char::is_control))
+        .then_some(())
+        .ok_or(CatalogValidationError::InvalidText(kind))
+}
+
+fn validate_timestamp(kind: &'static str, value: i64) -> Result<(), CatalogValidationError> {
+    (value >= 0)
+        .then_some(())
+        .ok_or(CatalogValidationError::InvalidText(kind))
+}
+
+fn validate_optional_timestamp(
+    kind: &'static str,
+    value: Option<i64>,
+) -> Result<(), CatalogValidationError> {
+    value.map_or(Ok(()), |value| validate_timestamp(kind, value))
+}
+
+fn validate_sha256(kind: &'static str, value: &str) -> Result<(), CatalogValidationError> {
+    (value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+    .then_some(())
+    .ok_or(CatalogValidationError::InvalidText(kind))
+}
+
+fn validate_git_oid(value: &str) -> Result<(), CatalogValidationError> {
+    (matches!(value.len(), 40 | 64)
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+    .then_some(())
+    .ok_or(CatalogValidationError::InvalidText("checkpoint commit_oid"))
+}
+
+fn validate_checkpoint_reference(value: &str) -> Result<(), CatalogValidationError> {
+    (value.starts_with("refs/remora/checkpoints/")
+        && value.len() <= MAX_PATH_BYTES
+        && !value.chars().any(char::is_control))
+    .then_some(())
+    .ok_or(CatalogValidationError::InvalidText(
+        "checkpoint reference_name",
+    ))
+}
+
 fn bound_utf8(mut value: String, maximum: usize) -> String {
     if value.len() <= maximum {
         return value;
@@ -901,6 +1145,122 @@ fn bound_utf8(mut value: String, maximum: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn full_catalog() -> HostCatalogV1 {
+        let host_id = HostId("abcdefghijklmnopqrstuv".to_string());
+        let provider_instance_id = ProviderInstanceId("bcdefghijklmnopqrstuvw".to_string());
+        let project_id = ProjectId("cdefghijklmnopqrstuvwx".to_string());
+        let working_copy_id = WorkingCopyId("defghijklmnopqrstuvwxy".to_string());
+        let thread_id = ThreadId("efghijklmnopqrstuvwxyz".to_string());
+        let turn_id = TurnId("fghijklmnopqrstuvwxyza".to_string());
+        let provider_session_id = ProviderSessionId("ghijklmnopqrstuvwxyzab".to_string());
+        let checkpoint_id = CheckpointId("hijklmnopqrstuvwxyzabc".to_string());
+        let route_handle = RouteHandle("ijklmnopqrstuvwxyzabcd".to_string());
+        let mut catalog =
+            HostCatalogV1::empty(host_id.clone(), HostCapabilitiesV1::all_unknown(2, "0.1.0"));
+        catalog.provider_instances.push(ProviderInstance {
+            instance_id: provider_instance_id.clone(),
+            runtime_id: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            readiness: ProviderReadiness::Ready,
+            readiness_reason: None,
+            continuation_group_id: "codex-default".to_string(),
+            models: vec![ModelDescriptor {
+                model_id: "gpt-5".to_string(),
+                display_name: "GPT-5".to_string(),
+                is_default: true,
+            }],
+            capabilities: RuntimeCapabilitiesV1::all_unknown(),
+        });
+        catalog.projects.push(ProjectRecord {
+            summary: ProjectSummary {
+                project_id: project_id.clone(),
+                host_id,
+                display_name: "Remora".to_string(),
+                git_kind: ProjectGitKind::Git,
+                default_branch: Some("main".to_string()),
+                availability: ProjectAvailability::Available,
+            },
+            root_path: "/tmp/remora".to_string(),
+            root_identity: "device:inode".to_string(),
+            created_at_ms: 1,
+        });
+        catalog.working_copies.push(WorkingCopyRecord {
+            summary: WorkingCopySummary {
+                working_copy_id: working_copy_id.clone(),
+                project_id: project_id.clone(),
+                display_name: "Command center".to_string(),
+                branch: Some("remora/thread".to_string()),
+                base_revision: Some("a".repeat(40)),
+                lifecycle: WorkingCopyLifecycle::Ready,
+            },
+            root_path: "/tmp/remora-worktree".to_string(),
+            created_at_ms: 2,
+            archived_at_ms: None,
+        });
+        catalog.threads.push(ThreadRecord {
+            summary: ThreadSummary {
+                thread_id: thread_id.clone(),
+                host_id: catalog.host_id.clone(),
+                project_id: Some(project_id.clone()),
+                working_copy_id: Some(working_copy_id),
+                runtime_id: "codex".to_string(),
+                provider_instance_id: provider_instance_id.clone(),
+                title: "Build command center".to_string(),
+                status: ThreadStatus::Running,
+                attention: AttentionState::None,
+                updated_at_ms: 3,
+                route_handle: route_handle.clone(),
+            },
+            created_at_ms: 2,
+            linked_parent_thread_id: None,
+            archived_at_ms: None,
+        });
+        catalog.turns.push(TurnSummary {
+            turn_id: turn_id.clone(),
+            thread_id: thread_id.clone(),
+            lifecycle: TurnLifecycle::Completed,
+            started_at_ms: 3,
+            completed_at_ms: Some(4),
+            checkpoint_id: Some(checkpoint_id.clone()),
+        });
+        catalog.provider_sessions.push(ProviderSessionSummary {
+            provider_session_id,
+            thread_id: thread_id.clone(),
+            provider_instance_id,
+            lifecycle: ProviderSessionLifecycle::Connected,
+            resumable_session_id: Some("provider-session".to_string()),
+            updated_at_ms: 4,
+        });
+        catalog.checkpoints.push(CheckpointSummary {
+            checkpoint_id,
+            thread_id: thread_id.clone(),
+            turn_id: Some(turn_id),
+            commit_oid: "a".repeat(40),
+            reference_name: "refs/remora/checkpoints/thread/turn".to_string(),
+            created_at_ms: 4,
+        });
+        catalog.route_handles.push(RouteHandleRecord {
+            route_handle,
+            thread_id,
+            created_at_ms: 2,
+            expires_at_ms: None,
+        });
+        catalog.trusted_scripts.push(TrustedScriptRecord {
+            trust_hash: "b".repeat(64),
+            project_id: project_id.clone(),
+            command: vec!["make".to_string(), "bootstrap".to_string()],
+            working_directory: "/tmp/remora".to_string(),
+            trigger: "working_copy_created".to_string(),
+            declared_environment: vec!["CI=1".to_string()],
+        });
+        catalog.browser_profiles.push(BrowserProfileRecord {
+            project_id,
+            profile_directory: "/tmp/remora-browser".to_string(),
+            updated_at_ms: 4,
+        });
+        catalog
+    }
 
     #[test]
     fn opaque_ids_are_exact_base64url_128_bit_values() {
@@ -981,5 +1341,77 @@ mod tests {
         let status = catalog.command_center_status_for_runtime_ids(&["codex".to_string()]);
         assert_eq!(status.provider_instances.len(), 1);
         assert_eq!(status.provider_instances[0].runtime_id, "codex");
+    }
+
+    #[test]
+    fn complete_catalog_graph_is_bounded_and_relationally_valid() {
+        full_catalog().validate().expect("valid catalog");
+    }
+
+    #[test]
+    fn catalog_rejects_cross_project_working_copy_and_missing_route() {
+        let mut catalog = full_catalog();
+        catalog.threads[0].summary.project_id = None;
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::InvalidReference("thread"))
+        );
+
+        let mut catalog = full_catalog();
+        catalog.route_handles.clear();
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::InvalidReference("thread"))
+        );
+    }
+
+    #[test]
+    fn catalog_rejects_mismatched_provider_session_and_checkpoint_turn() {
+        let mut catalog = full_catalog();
+        catalog.provider_sessions[0].provider_instance_id =
+            ProviderInstanceId("jklmnopqrstuvwxyzabcde".to_string());
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::InvalidReference("provider session"))
+        );
+
+        let mut catalog = full_catalog();
+        catalog.turns[0].checkpoint_id = Some(CheckpointId("jklmnopqrstuvwxyzabcde".to_string()));
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::InvalidReference("turn"))
+        );
+
+        let mut catalog = full_catalog();
+        catalog.checkpoints[0].turn_id = Some(TurnId("jklmnopqrstuvwxyzabcde".to_string()));
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::InvalidReference("checkpoint"))
+        );
+    }
+
+    #[test]
+    fn catalog_rejects_previously_unbounded_collections_and_strings() {
+        let mut catalog = full_catalog();
+        catalog.route_handles = vec![catalog.route_handles[0].clone(); MAX_ROUTE_HANDLES + 1];
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::TooMany("route handles"))
+        );
+
+        let mut catalog = full_catalog();
+        catalog.trusted_scripts[0].command =
+            vec!["argument".to_string(); MAX_COMMAND_ARGUMENTS + 1];
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::TooMany("trusted script command"))
+        );
+
+        let mut catalog = full_catalog();
+        catalog.projects[0].root_identity = "x".repeat(MAX_DISPLAY_LABEL_BYTES + 1);
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::InvalidText("project root identity"))
+        );
     }
 }

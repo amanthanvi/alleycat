@@ -27,7 +27,9 @@ use tokio::sync::{Mutex, OwnedRwLockReadGuard, RwLock};
 use tracing::{error, warn};
 use zeroize::{Zeroize, Zeroizing};
 
-use remora_bridge_core::command_center::{HostCommandCenterStatusV1, MAX_WORK_INTENT_ID_BYTES};
+use remora_bridge_core::command_center::{
+    HostCommandCenterStatusV1, MAX_DISPLAY_LABEL_BYTES, MAX_WORK_INTENT_ID_BYTES,
+};
 
 use crate::protocol::{AgentInfo, SessionInfo};
 
@@ -254,6 +256,19 @@ pub enum RequestV2 {
         credential_id: String,
         client_nonce: String,
     },
+    BindProviderThread {
+        v: u32,
+        credential_id: String,
+        client_nonce: String,
+        runtime_id: String,
+        provider_thread_id: String,
+    },
+    ResolveThreadBinding {
+        v: u32,
+        credential_id: String,
+        client_nonce: String,
+        thread_id: String,
+    },
     PrepareSendMessageIntent {
         v: u32,
         credential_id: String,
@@ -316,6 +331,8 @@ impl RequestV2 {
             | Self::Enroll { v, .. }
             | Self::ListAgents { v, .. }
             | Self::CommandCenterStatus { v, .. }
+            | Self::BindProviderThread { v, .. }
+            | Self::ResolveThreadBinding { v, .. }
             | Self::PrepareSendMessageIntent { v, .. }
             | Self::BeginSendMessageIntent { v, .. }
             | Self::CompleteSendMessageIntent { v, .. }
@@ -332,6 +349,8 @@ impl RequestV2 {
             Self::Enroll { .. } => "enroll",
             Self::ListAgents { .. } => "list_agents",
             Self::CommandCenterStatus { .. } => "command_center_status",
+            Self::BindProviderThread { .. } => "bind_provider_thread",
+            Self::ResolveThreadBinding { .. } => "resolve_thread_binding",
             Self::PrepareSendMessageIntent { .. } => "prepare_send_message_intent",
             Self::BeginSendMessageIntent { .. } => "begin_send_message_intent",
             Self::CompleteSendMessageIntent { .. } => "complete_send_message_intent",
@@ -348,6 +367,8 @@ impl RequestV2 {
             | Self::Enroll { client_nonce, .. }
             | Self::ListAgents { client_nonce, .. }
             | Self::CommandCenterStatus { client_nonce, .. }
+            | Self::BindProviderThread { client_nonce, .. }
+            | Self::ResolveThreadBinding { client_nonce, .. }
             | Self::PrepareSendMessageIntent { client_nonce, .. }
             | Self::BeginSendMessageIntent { client_nonce, .. }
             | Self::CompleteSendMessageIntent { client_nonce, .. }
@@ -363,6 +384,8 @@ impl RequestV2 {
             Self::InspectInvitation { .. } | Self::Enroll { .. } => None,
             Self::ListAgents { credential_id, .. }
             | Self::CommandCenterStatus { credential_id, .. }
+            | Self::BindProviderThread { credential_id, .. }
+            | Self::ResolveThreadBinding { credential_id, .. }
             | Self::PrepareSendMessageIntent { credential_id, .. }
             | Self::BeginSendMessageIntent { credential_id, .. }
             | Self::CompleteSendMessageIntent { credential_id, .. }
@@ -401,6 +424,12 @@ impl RequestV2 {
             ]),
             Self::ListAgents { .. } => hash_operation_payload(&[]),
             Self::CommandCenterStatus { .. } => hash_operation_payload(&[]),
+            Self::BindProviderThread {
+                runtime_id,
+                provider_thread_id,
+                ..
+            } => hash_operation_payload(&[runtime_id, provider_thread_id]),
+            Self::ResolveThreadBinding { thread_id, .. } => hash_operation_payload(&[thread_id]),
             Self::PrepareSendMessageIntent {
                 intent_id,
                 thread_id,
@@ -522,6 +551,7 @@ pub enum ErrorCodeV2 {
     PairingUnavailable,
     AuthorizationRequired,
     InvalidRequest,
+    ThreadBindingRejected,
     WorkIntentRejected,
     AgentUnavailable,
     OutcomeUnknown,
@@ -534,6 +564,7 @@ impl ErrorCodeV2 {
             Self::PairingUnavailable => "pairing unavailable",
             Self::AuthorizationRequired => "device authorization required",
             Self::InvalidRequest => "invalid request",
+            Self::ThreadBindingRejected => "provider Thread binding rejected",
             Self::WorkIntentRejected => "work intent rejected",
             Self::AgentUnavailable => "agent unavailable",
             Self::OutcomeUnknown => "operation outcome unknown",
@@ -645,6 +676,16 @@ pub struct WorkIntentReceiptV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
     pub status: WorkIntentStatusV2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ThreadBindingReceiptV2 {
+    pub thread_id: String,
+    pub provider_session_id: String,
+    pub provider_instance_id: String,
+    pub runtime_id: String,
+    pub provider_thread_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -780,6 +821,8 @@ pub struct ResponseV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command_center_status: Option<HostCommandCenterStatusV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_binding: Option<ThreadBindingReceiptV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_intent: Option<WorkIntentReceiptV2>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionInfo>,
@@ -802,6 +845,7 @@ impl ResponseV2 {
             restart: None,
             agents: None,
             command_center_status: None,
+            thread_binding: None,
             work_intent: None,
             session: None,
             error_code: None,
@@ -853,6 +897,7 @@ impl ResponseV2 {
             restart: None,
             agents: None,
             command_center_status: None,
+            thread_binding: None,
             work_intent: None,
             session: None,
             error_code: Some(ErrorCodeV2::OutcomeUnknown),
@@ -876,6 +921,7 @@ impl ResponseV2 {
                 restart: Some(value),
                 agents: None,
                 command_center_status: None,
+                thread_binding: None,
                 work_intent: None,
                 session: None,
                 error_code: Some(ErrorCodeV2::OutcomeUnknown),
@@ -895,6 +941,12 @@ impl ResponseV2 {
             ..Self::success()
         }
     }
+    pub fn thread_binding(value: ThreadBindingReceiptV2) -> Self {
+        Self {
+            thread_binding: Some(value),
+            ..Self::success()
+        }
+    }
     pub fn work_intent(value: WorkIntentReceiptV2) -> Self {
         match value.status {
             WorkIntentStatusV2::OutcomeUnknown => Self {
@@ -908,6 +960,7 @@ impl ResponseV2 {
                 restart: None,
                 agents: None,
                 command_center_status: None,
+                thread_binding: None,
                 work_intent: Some(value),
                 session: None,
                 error_code: Some(ErrorCodeV2::OutcomeUnknown),
@@ -937,6 +990,7 @@ impl ResponseV2 {
             restart: None,
             agents: None,
             command_center_status: None,
+            thread_binding: None,
             work_intent: None,
             session: None,
             error_code: Some(code),
@@ -3122,6 +3176,28 @@ fn validate_request(request: &RequestV2) -> Result<(), RedeemError> {
                 return Err(RedeemError::Unavailable);
             }
         }
+        RequestV2::BindProviderThread {
+            credential_id,
+            runtime_id,
+            provider_thread_id,
+            ..
+        } => {
+            if !valid_opaque_id(credential_id)
+                || !valid_runtime_id(runtime_id)
+                || !valid_label(provider_thread_id, MAX_DISPLAY_LABEL_BYTES)
+            {
+                return Err(RedeemError::Unavailable);
+            }
+        }
+        RequestV2::ResolveThreadBinding {
+            credential_id,
+            thread_id,
+            ..
+        } => {
+            if !valid_opaque_id(credential_id) || !valid_opaque_id(thread_id) {
+                return Err(RedeemError::Unavailable);
+            }
+        }
         RequestV2::PrepareSendMessageIntent {
             credential_id,
             intent_id,
@@ -3206,6 +3282,10 @@ fn enforce_operation_grant(request: &RequestV2, device: &DeviceRecord) -> Result
         RequestV2::ListAgents { .. } | RequestV2::CommandCenterStatus { .. } => {
             (DeviceScopeV2::InspectRuntimes, None)
         }
+        RequestV2::BindProviderThread { runtime_id, .. } => {
+            (DeviceScopeV2::ConnectRuntime, Some(runtime_id))
+        }
+        RequestV2::ResolveThreadBinding { .. } => (DeviceScopeV2::ConnectRuntime, None),
         RequestV2::PrepareSendMessageIntent { .. }
         | RequestV2::BeginSendMessageIntent { .. }
         | RequestV2::CompleteSendMessageIntent { .. } => (DeviceScopeV2::ConnectRuntime, None),
@@ -4121,6 +4201,56 @@ mod tests {
         assert_eq!(validate_request(&request), Err(RedeemError::Unavailable));
     }
 
+    #[test]
+    fn provider_thread_binding_frames_are_content_free_strict_and_correlated() {
+        let mut request = RequestV2::BindProviderThread {
+            v: PROTOCOL_VERSION_V2,
+            credential_id: "abcdefghijklmnopqrstuv".to_string(),
+            client_nonce: random_urlsafe(NONCE_BYTES),
+            runtime_id: "codex".to_string(),
+            provider_thread_id: "provider-thread-1".to_string(),
+        };
+        assert!(validate_request(&request).is_ok());
+        assert_eq!(request.operation(), "bind_provider_thread");
+        let value = serde_json::to_value(&request).expect("serialize request");
+        for forbidden in ["prompt", "payload", "path", "transcript", "command"] {
+            assert!(value.get(forbidden).is_none());
+        }
+
+        if let RequestV2::BindProviderThread {
+            provider_thread_id, ..
+        } = &mut request
+        {
+            *provider_thread_id = "x".repeat(MAX_DISPLAY_LABEL_BYTES + 1);
+        }
+        assert_eq!(validate_request(&request), Err(RedeemError::Unavailable));
+
+        let unknown = r#"{"op":"resolve_thread_binding","v":2,"credential_id":"abcdefghijklmnopqrstuv","client_nonce":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI","thread_id":"bcdefghijklmnopqrstuvw","path":"/tmp/secret"}"#;
+        assert!(serde_json::from_str::<RequestV2>(unknown).is_err());
+
+        assert_eq!(
+            serde_json::to_value(ResponseV2::thread_binding(ThreadBindingReceiptV2 {
+                thread_id: "bcdefghijklmnopqrstuvw".to_string(),
+                provider_session_id: "cdefghijklmnopqrstuvwx".to_string(),
+                provider_instance_id: "defghijklmnopqrstuvwxy".to_string(),
+                runtime_id: "codex".to_string(),
+                provider_thread_id: "provider-thread-1".to_string(),
+            }))
+            .expect("serialize response"),
+            serde_json::json!({
+                "v": 2,
+                "ok": true,
+                "thread_binding": {
+                    "thread_id": "bcdefghijklmnopqrstuvw",
+                    "provider_session_id": "cdefghijklmnopqrstuvwx",
+                    "provider_instance_id": "defghijklmnopqrstuvwxy",
+                    "runtime_id": "codex",
+                    "provider_thread_id": "provider-thread-1"
+                }
+            })
+        );
+    }
+
     #[tokio::test]
     async fn oversized_pairing_envelope_is_rejected_before_persistence() {
         let (_temp, manager) = manager().await;
@@ -4472,6 +4602,77 @@ mod tests {
             .await
             .expect("ConnectRuntime authorizes a content-free work intent");
 
+        let binding = RequestV2::BindProviderThread {
+            v: PROTOCOL_VERSION_V2,
+            credential_id: enrolled.device_id.clone(),
+            client_nonce: random_urlsafe(NONCE_BYTES),
+            runtime_id: "codex".to_string(),
+            provider_thread_id: "provider-thread-1".to_string(),
+        };
+        let binding_challenge = ProofChallengeV2::issue_at(enrolled.device_id.clone(), 0, now + 5);
+        let binding_proof = sign_request(&binding, &binding_challenge, &key, &host_id, "phone");
+        manager
+            .authorize_operation_at(
+                &binding,
+                &binding_challenge,
+                &binding_proof,
+                &host_id,
+                "phone",
+                now + 5,
+            )
+            .await
+            .expect("ConnectRuntime authorizes binding for a selected runtime");
+
+        let wrong_runtime = RequestV2::BindProviderThread {
+            v: PROTOCOL_VERSION_V2,
+            credential_id: enrolled.device_id.clone(),
+            client_nonce: random_urlsafe(NONCE_BYTES),
+            runtime_id: "claude".to_string(),
+            provider_thread_id: "provider-thread-1".to_string(),
+        };
+        let wrong_runtime_challenge =
+            ProofChallengeV2::issue_at(enrolled.device_id.clone(), 0, now + 6);
+        let wrong_runtime_proof = sign_request(
+            &wrong_runtime,
+            &wrong_runtime_challenge,
+            &key,
+            &host_id,
+            "phone",
+        );
+        assert_eq!(
+            manager
+                .authorize_operation_at(
+                    &wrong_runtime,
+                    &wrong_runtime_challenge,
+                    &wrong_runtime_proof,
+                    &host_id,
+                    "phone",
+                    now + 6,
+                )
+                .await,
+            Err(RedeemError::Unavailable)
+        );
+
+        let resolve = RequestV2::ResolveThreadBinding {
+            v: PROTOCOL_VERSION_V2,
+            credential_id: enrolled.device_id.clone(),
+            client_nonce: random_urlsafe(NONCE_BYTES),
+            thread_id: "bcdefghijklmnopqrstuvw".to_string(),
+        };
+        let resolve_challenge = ProofChallengeV2::issue_at(enrolled.device_id.clone(), 0, now + 7);
+        let resolve_proof = sign_request(&resolve, &resolve_challenge, &key, &host_id, "phone");
+        manager
+            .authorize_operation_at(
+                &resolve,
+                &resolve_challenge,
+                &resolve_proof,
+                &host_id,
+                "phone",
+                now + 7,
+            )
+            .await
+            .expect("ConnectRuntime authorizes an opaque binding lookup");
+
         let denied = RequestV2::RestartAgent {
             v: PROTOCOL_VERSION_V2,
             credential_id: enrolled.device_id.clone(),
@@ -4480,7 +4681,7 @@ mod tests {
             idempotency_key: "restart-operation-1".to_string(),
             command_sequence: 1,
         };
-        let denied_challenge = ProofChallengeV2::issue_at(enrolled.device_id, 0, now + 5);
+        let denied_challenge = ProofChallengeV2::issue_at(enrolled.device_id, 0, now + 8);
         let denied_proof = sign_request(&denied, &denied_challenge, &key, &host_id, "phone");
         assert_eq!(
             manager
@@ -4490,7 +4691,7 @@ mod tests {
                     &denied_proof,
                     &host_id,
                     "phone",
-                    now + 5
+                    now + 8
                 )
                 .await,
             Err(RedeemError::Unavailable)

@@ -842,6 +842,7 @@ impl HostCatalogV1 {
                 }
             }
         }
+        let mut resumable_provider_sessions = HashSet::new();
         for session in &self.provider_sessions {
             validate_optional_label(
                 "provider resumable session_id",
@@ -855,6 +856,14 @@ impl HostCatalogV1 {
                 .map(|thread| thread.summary.provider_instance_id.as_str());
             if thread_provider_id != Some(session.provider_instance_id.as_str()) {
                 return Err(CatalogValidationError::InvalidReference("provider session"));
+            }
+            if let Some(resumable_session_id) = session.resumable_session_id.as_deref()
+                && !resumable_provider_sessions
+                    .insert((session.provider_instance_id.as_str(), resumable_session_id))
+            {
+                return Err(CatalogValidationError::DuplicateId(
+                    "provider resumable session",
+                ));
             }
         }
         for checkpoint in &self.checkpoints {
@@ -980,6 +989,25 @@ impl HostCatalogV1 {
                 return Err(CatalogValidationError::ImmutableThreadRuntime);
             }
         }
+        for current in &self.provider_sessions {
+            let Some(updated) = next
+                .provider_sessions
+                .iter()
+                .find(|candidate| candidate.provider_session_id == current.provider_session_id)
+            else {
+                return Err(CatalogValidationError::InvalidProviderSessionTransition);
+            };
+            let resumable_session_is_valid = current.resumable_session_id
+                == updated.resumable_session_id
+                || current.resumable_session_id.is_none() && updated.resumable_session_id.is_some();
+            if current.thread_id != updated.thread_id
+                || current.provider_instance_id != updated.provider_instance_id
+                || updated.updated_at_ms < current.updated_at_ms
+                || !resumable_session_is_valid
+            {
+                return Err(CatalogValidationError::InvalidProviderSessionTransition);
+            }
+        }
         for current in &self.work_intents {
             let Some(updated) = next
                 .work_intents
@@ -1058,6 +1086,8 @@ pub enum CatalogValidationError {
     InvalidGeneration,
     #[error("thread runtime and provider instance are immutable")]
     ImmutableThreadRuntime,
+    #[error("invalid durable provider-session transition")]
+    InvalidProviderSessionTransition,
     #[error("invalid durable work-intent transition")]
     InvalidWorkIntentTransition,
 }
@@ -1583,6 +1613,38 @@ mod tests {
         assert_eq!(
             catalog.validate(),
             Err(CatalogValidationError::InvalidReference("checkpoint"))
+        );
+    }
+
+    #[test]
+    fn provider_session_binding_is_unique_and_transition_immutable() {
+        let current = full_catalog();
+        let mut duplicate = current.clone();
+        duplicate.provider_sessions.push(ProviderSessionSummary {
+            provider_session_id: ProviderSessionId("lmnopqrstuvwxyzabcdefg".to_string()),
+            ..duplicate.provider_sessions[0].clone()
+        });
+        assert_eq!(
+            duplicate.validate(),
+            Err(CatalogValidationError::DuplicateId(
+                "provider resumable session"
+            ))
+        );
+
+        let mut rebound = current.clone();
+        rebound.generation += 1;
+        rebound.provider_sessions[0].resumable_session_id = Some("different-session".to_string());
+        assert_eq!(
+            current.validate_transition(&rebound),
+            Err(CatalogValidationError::InvalidProviderSessionTransition)
+        );
+
+        let mut removed = current.clone();
+        removed.generation += 1;
+        removed.provider_sessions.clear();
+        assert_eq!(
+            current.validate_transition(&removed),
+            Err(CatalogValidationError::InvalidProviderSessionTransition)
         );
     }
 

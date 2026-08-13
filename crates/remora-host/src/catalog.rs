@@ -11,8 +11,11 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use fd_lock::RwLock;
 use rand::RngCore;
 use remora_bridge_core::command_center::{
-    HostCapabilitiesV1, HostCatalogV1, HostId, OPAQUE_ID_LENGTH, ThreadId, TurnId, TurnLifecycle,
-    TurnSummary, WorkIntentKind, WorkIntentRecord, WorkIntentState,
+    AttentionState, HostCapabilitiesV1, HostCatalogV1, HostId, MAX_DISPLAY_LABEL_BYTES,
+    OPAQUE_ID_LENGTH, ProviderInstance, ProviderInstanceId, ProviderReadiness, ProviderSessionId,
+    ProviderSessionLifecycle, ProviderSessionSummary, RouteHandle, RouteHandleRecord,
+    RuntimeCapabilitiesV1, ThreadId, ThreadRecord, ThreadStatus, ThreadSummary, TurnId,
+    TurnLifecycle, TurnSummary, WorkIntentKind, WorkIntentRecord, WorkIntentState,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -46,6 +49,15 @@ pub enum WorkIntentPreparation {
     Reserved(WorkIntentRecord),
     Succeeded(WorkIntentRecord),
     OutcomeUnknown(WorkIntentRecord),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderThreadBinding {
+    pub thread_id: ThreadId,
+    pub provider_session_id: ProviderSessionId,
+    pub provider_instance_id: ProviderInstanceId,
+    pub runtime_id: String,
+    pub provider_thread_id: String,
 }
 
 impl HostCatalogStore {
@@ -176,6 +188,139 @@ impl HostCatalogStore {
                 value: result,
                 error,
             }),
+        }
+    }
+
+    /// Bind an upstream provider Thread to one durable Host Scratch Thread.
+    ///
+    /// Replays return the existing binding without mutating the catalog. A
+    /// runtime with multiple named provider instances is deliberately
+    /// rejected until the caller selects an explicit instance.
+    pub fn bind_provider_thread(
+        &self,
+        runtime_id: &str,
+        display_name: &str,
+        provider_thread_id: &str,
+        now_ms: i64,
+    ) -> anyhow::Result<CatalogCommit<ProviderThreadBinding>> {
+        validate_bounded_label("runtime_id", runtime_id)?;
+        validate_bounded_label("provider display name", display_name)?;
+        validate_bounded_label("provider thread_id", provider_thread_id)?;
+        if now_ms < 0 {
+            return Err(anyhow!("provider Thread timestamp is invalid"));
+        }
+
+        self.transact_maybe(|catalog| {
+            let existing = catalog
+                .provider_sessions
+                .iter()
+                .filter(|session| {
+                    session.resumable_session_id.as_deref() == Some(provider_thread_id)
+                        && catalog.provider_instances.iter().any(|provider| {
+                            provider.instance_id == session.provider_instance_id
+                                && provider.runtime_id == runtime_id
+                        })
+                })
+                .map(|session| provider_thread_binding(catalog, session))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            match existing.as_slice() {
+                [binding] => return Ok((binding.clone(), false)),
+                [] => {}
+                _ => return Err(anyhow!("provider Thread binding is ambiguous")),
+            }
+
+            let matching_provider_ids = catalog
+                .provider_instances
+                .iter()
+                .filter(|provider| provider.runtime_id == runtime_id)
+                .map(|provider| provider.instance_id.clone())
+                .collect::<Vec<_>>();
+            let provider_instance_id = match matching_provider_ids.as_slice() {
+                [provider_instance_id] => provider_instance_id.clone(),
+                [] => {
+                    let provider_instance_id = unique_provider_instance_id(catalog);
+                    catalog.provider_instances.push(ProviderInstance {
+                        instance_id: provider_instance_id.clone(),
+                        runtime_id: runtime_id.to_string(),
+                        display_name: display_name.to_string(),
+                        readiness: ProviderReadiness::Ready,
+                        readiness_reason: None,
+                        continuation_group_id: runtime_id.to_string(),
+                        models: Vec::new(),
+                        capabilities: RuntimeCapabilitiesV1::all_unknown(),
+                    });
+                    provider_instance_id
+                }
+                _ => return Err(anyhow!("provider instance selection is ambiguous")),
+            };
+
+            let thread_id = unique_thread_id(catalog);
+            let provider_session_id = unique_provider_session_id(catalog);
+            let route_handle = unique_route_handle(catalog);
+            catalog.route_handles.push(RouteHandleRecord {
+                route_handle: route_handle.clone(),
+                thread_id: thread_id.clone(),
+                created_at_ms: now_ms,
+                expires_at_ms: None,
+            });
+            catalog.threads.push(ThreadRecord {
+                summary: ThreadSummary {
+                    thread_id: thread_id.clone(),
+                    host_id: catalog.host_id.clone(),
+                    project_id: None,
+                    working_copy_id: None,
+                    runtime_id: runtime_id.to_string(),
+                    provider_instance_id: provider_instance_id.clone(),
+                    title: "New thread".to_string(),
+                    status: ThreadStatus::Running,
+                    attention: AttentionState::None,
+                    updated_at_ms: now_ms,
+                    route_handle,
+                },
+                created_at_ms: now_ms,
+                linked_parent_thread_id: None,
+                archived_at_ms: None,
+            });
+            catalog.provider_sessions.push(ProviderSessionSummary {
+                provider_session_id: provider_session_id.clone(),
+                thread_id: thread_id.clone(),
+                provider_instance_id: provider_instance_id.clone(),
+                lifecycle: ProviderSessionLifecycle::Connected,
+                resumable_session_id: Some(provider_thread_id.to_string()),
+                updated_at_ms: now_ms,
+            });
+            Ok((
+                ProviderThreadBinding {
+                    thread_id,
+                    provider_session_id,
+                    provider_instance_id,
+                    runtime_id: runtime_id.to_string(),
+                    provider_thread_id: provider_thread_id.to_string(),
+                },
+                true,
+            ))
+        })
+    }
+
+    pub fn resolve_provider_thread(
+        &self,
+        thread_id: &ThreadId,
+    ) -> anyhow::Result<Option<ProviderThreadBinding>> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let bindings = state
+            .provider_sessions
+            .iter()
+            .filter(|session| session.thread_id == *thread_id)
+            .filter(|session| session.resumable_session_id.is_some())
+            .map(|session| provider_thread_binding(&state, session))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        match bindings.as_slice() {
+            [] => Ok(None),
+            [binding] => Ok(Some(binding.clone())),
+            _ => Err(anyhow!("Host Thread provider binding is ambiguous")),
         }
     }
 
@@ -458,6 +603,38 @@ fn catalog_checksum(state: &HostCatalogV1) -> anyhow::Result<String> {
     Ok(hex::encode(Sha256::digest(bytes)))
 }
 
+fn provider_thread_binding(
+    catalog: &HostCatalogV1,
+    session: &ProviderSessionSummary,
+) -> anyhow::Result<ProviderThreadBinding> {
+    let provider = catalog
+        .provider_instances
+        .iter()
+        .find(|provider| provider.instance_id == session.provider_instance_id)
+        .ok_or_else(|| anyhow!("provider Thread binding has no provider instance"))?;
+    let provider_thread_id = session
+        .resumable_session_id
+        .clone()
+        .ok_or_else(|| anyhow!("provider Thread binding is not resumable"))?;
+    Ok(ProviderThreadBinding {
+        thread_id: session.thread_id.clone(),
+        provider_session_id: session.provider_session_id.clone(),
+        provider_instance_id: session.provider_instance_id.clone(),
+        runtime_id: provider.runtime_id.clone(),
+        provider_thread_id,
+    })
+}
+
+fn validate_bounded_label(kind: &str, value: &str) -> anyhow::Result<()> {
+    if value.trim().is_empty()
+        || value.len() > MAX_DISPLAY_LABEL_BYTES
+        || value.chars().any(char::is_control)
+    {
+        return Err(anyhow!("{kind} is invalid"));
+    }
+    Ok(())
+}
+
 fn random_opaque_id() -> String {
     let mut bytes = [0_u8; 16];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
@@ -468,6 +645,58 @@ fn random_opaque_id() -> String {
 
 fn random_host_id() -> HostId {
     HostId(random_opaque_id())
+}
+
+fn unique_provider_instance_id(catalog: &HostCatalogV1) -> ProviderInstanceId {
+    loop {
+        let candidate = ProviderInstanceId(random_opaque_id());
+        if catalog
+            .provider_instances
+            .iter()
+            .all(|provider| provider.instance_id != candidate)
+        {
+            return candidate;
+        }
+    }
+}
+
+fn unique_thread_id(catalog: &HostCatalogV1) -> ThreadId {
+    loop {
+        let candidate = ThreadId(random_opaque_id());
+        if catalog
+            .threads
+            .iter()
+            .all(|thread| thread.summary.thread_id != candidate)
+        {
+            return candidate;
+        }
+    }
+}
+
+fn unique_provider_session_id(catalog: &HostCatalogV1) -> ProviderSessionId {
+    loop {
+        let candidate = ProviderSessionId(random_opaque_id());
+        if catalog
+            .provider_sessions
+            .iter()
+            .all(|session| session.provider_session_id != candidate)
+        {
+            return candidate;
+        }
+    }
+}
+
+fn unique_route_handle(catalog: &HostCatalogV1) -> RouteHandle {
+    loop {
+        let candidate = RouteHandle(random_opaque_id());
+        if catalog
+            .route_handles
+            .iter()
+            .all(|route| route.route_handle != candidate)
+        {
+            return candidate;
+        }
+    }
 }
 
 fn unique_turn_id(catalog: &HostCatalogV1) -> TurnId {
@@ -593,6 +822,115 @@ mod tests {
             reopened.host_capabilities.project_registration.state,
             remora_bridge_core::command_center::AvailabilityState::Available
         );
+    }
+
+    #[test]
+    fn provider_thread_binding_is_idempotent_durable_and_projectless() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let store = open(root.path());
+        let first = store
+            .bind_provider_thread("codex", "Codex", "provider-thread-1", 10)
+            .expect("bind provider Thread")
+            .value()
+            .clone();
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.generation, 1);
+        assert_eq!(snapshot.provider_instances.len(), 1);
+        assert_eq!(snapshot.threads.len(), 1);
+        assert_eq!(snapshot.provider_sessions.len(), 1);
+        assert_eq!(snapshot.route_handles.len(), 1);
+        assert!(snapshot.projects.is_empty());
+        assert!(snapshot.working_copies.is_empty());
+        assert!(snapshot.threads[0].summary.project_id.is_none());
+        assert!(snapshot.threads[0].summary.working_copy_id.is_none());
+        assert_eq!(snapshot.threads[0].summary.title, "New thread");
+        assert_eq!(first.thread_id.as_str().len(), OPAQUE_ID_LENGTH);
+        assert_eq!(first.provider_session_id.as_str().len(), OPAQUE_ID_LENGTH);
+        assert_eq!(first.provider_instance_id.as_str().len(), OPAQUE_ID_LENGTH);
+
+        let replay = store
+            .bind_provider_thread("codex", "Renamed Codex", "provider-thread-1", 11)
+            .expect("replay provider Thread binding")
+            .value()
+            .clone();
+        assert_eq!(replay, first);
+        assert_eq!(store.snapshot().generation, 1);
+
+        drop(store);
+        let reopened = open(root.path());
+        assert_eq!(
+            reopened
+                .resolve_provider_thread(&first.thread_id)
+                .expect("resolve provider Thread"),
+            Some(first)
+        );
+    }
+
+    #[test]
+    fn provider_thread_binding_replays_before_named_instance_ambiguity() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let store = open(root.path());
+        let first = store
+            .bind_provider_thread("codex", "Codex", "provider-thread-1", 10)
+            .expect("bind provider Thread")
+            .value()
+            .clone();
+        store
+            .transact(|catalog| {
+                catalog.provider_instances.push(ProviderInstance {
+                    instance_id: ProviderInstanceId("lmnopqrstuvwxyzabcdefg".to_string()),
+                    runtime_id: "codex".to_string(),
+                    display_name: "Codex Work".to_string(),
+                    readiness: ProviderReadiness::Ready,
+                    readiness_reason: None,
+                    continuation_group_id: "codex-work".to_string(),
+                    models: Vec::new(),
+                    capabilities: RuntimeCapabilitiesV1::all_unknown(),
+                });
+                Ok(())
+            })
+            .expect("add named provider instance");
+
+        let replay = store
+            .bind_provider_thread("codex", "Codex", "provider-thread-1", 11)
+            .expect("resolve existing provider Thread")
+            .value()
+            .clone();
+        assert_eq!(replay, first);
+        assert!(
+            store
+                .bind_provider_thread("codex", "Codex", "provider-thread-2", 12)
+                .expect_err("new binding requires explicit named instance")
+                .to_string()
+                .contains("provider instance selection is ambiguous")
+        );
+    }
+
+    #[test]
+    fn provider_thread_binding_rejects_unbounded_or_control_text() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let store = open(root.path());
+        assert!(
+            store
+                .bind_provider_thread("codex\n", "Codex", "provider-thread-1", 1)
+                .is_err()
+        );
+        assert!(
+            store
+                .bind_provider_thread(
+                    "codex",
+                    "Codex",
+                    &"x".repeat(MAX_DISPLAY_LABEL_BYTES + 1),
+                    1,
+                )
+                .is_err()
+        );
+        assert!(
+            store
+                .bind_provider_thread("codex", "Codex", "provider-thread-1", -1)
+                .is_err()
+        );
+        assert_eq!(store.snapshot().generation, 0);
     }
 
     #[test]

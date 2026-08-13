@@ -12,15 +12,15 @@ use tokio::sync::{Notify, Semaphore};
 use tracing::{info, warn};
 
 use crate::agents::AgentManager;
-use crate::catalog::{HostCatalogStore, WorkIntentPreparation};
+use crate::catalog::{HostCatalogStore, ProviderThreadBinding, WorkIntentPreparation};
 use crate::framing::{
     MAX_REMORA_LINK_V2_FRAME_BYTES, read_json_frame_bounded, write_json_frame_bounded,
 };
 use crate::pairing_v2::{
     AuthorizationContextV2, EnrollmentOutcomeV2, ErrorCodeV2, PROTOCOL_VERSION_V2, PairingManager,
     ProofV2, REMORA_LINK_ALPN, RedeemError, RequestV2, ResponseV2, RestartPreparationV2,
-    RestartResultV2, RestartStatusV2, RevocationMutationV2, WorkIntentReceiptV2,
-    WorkIntentStatusV2,
+    RestartResultV2, RestartStatusV2, RevocationMutationV2, ThreadBindingReceiptV2,
+    WorkIntentReceiptV2, WorkIntentStatusV2,
 };
 use crate::protocol::SessionInfo;
 use crate::stream::IrohStream;
@@ -487,6 +487,8 @@ async fn handle_stream_v2(
         }
         RequestV2::ListAgents { .. }
         | RequestV2::CommandCenterStatus { .. }
+        | RequestV2::BindProviderThread { .. }
+        | RequestV2::ResolveThreadBinding { .. }
         | RequestV2::PrepareSendMessageIntent { .. }
         | RequestV2::BeginSendMessageIntent { .. }
         | RequestV2::CompleteSendMessageIntent { .. }
@@ -569,6 +571,103 @@ async fn handle_stream_v2(
             )
             .await?;
             Ok(())
+        }
+        RequestV2::BindProviderThread {
+            runtime_id,
+            provider_thread_id,
+            ..
+        } => {
+            info!(conn, %runtime_id, "bind_provider_thread");
+            let agent = agents
+                .list_agents()
+                .await
+                .into_iter()
+                .find(|agent| agent.name == *runtime_id && agent.available);
+            let Some(agent) = agent else {
+                write_json_frame_bounded(
+                    &mut send,
+                    &ResponseV2::error(ErrorCodeV2::AgentUnavailable),
+                    MAX_REMORA_LINK_V2_FRAME_BYTES,
+                )
+                .await?;
+                return Err(anyhow!(ErrorCodeV2::AgentUnavailable.message()));
+            };
+            let operation_fence = match pairing
+                .prepare_connect_start(&authorization, &authenticated_client_endpoint_id)
+                .await
+            {
+                Ok(fence) => fence,
+                Err(_) => {
+                    write_json_frame_bounded(
+                        &mut send,
+                        &ResponseV2::error(ErrorCodeV2::AuthorizationRequired),
+                        MAX_REMORA_LINK_V2_FRAME_BYTES,
+                    )
+                    .await?;
+                    return Err(anyhow!(ErrorCodeV2::AuthorizationRequired.message()));
+                }
+            };
+            let binding = catalog.bind_provider_thread(
+                runtime_id,
+                &agent.display_name,
+                provider_thread_id,
+                unix_now_ms(),
+            );
+            drop(operation_fence);
+            let response = match binding {
+                Ok(commit) => {
+                    ResponseV2::thread_binding(thread_binding_receipt(commit.value().clone()))
+                }
+                Err(_) => ResponseV2::error(ErrorCodeV2::ThreadBindingRejected),
+            };
+            write_json_frame_bounded(&mut send, &response, MAX_REMORA_LINK_V2_FRAME_BYTES).await?;
+            if response.ok {
+                Ok(())
+            } else {
+                Err(anyhow!(ErrorCodeV2::ThreadBindingRejected.message()))
+            }
+        }
+        RequestV2::ResolveThreadBinding { thread_id, .. } => {
+            info!(conn, "resolve_thread_binding");
+            let operation_fence = match pairing
+                .prepare_connect_start(&authorization, &authenticated_client_endpoint_id)
+                .await
+            {
+                Ok(fence) => fence,
+                Err(_) => {
+                    write_json_frame_bounded(
+                        &mut send,
+                        &ResponseV2::error(ErrorCodeV2::AuthorizationRequired),
+                        MAX_REMORA_LINK_V2_FRAME_BYTES,
+                    )
+                    .await?;
+                    return Err(anyhow!(ErrorCodeV2::AuthorizationRequired.message()));
+                }
+            };
+            let binding = catalog.resolve_provider_thread(&ThreadId(thread_id.clone()));
+            drop(operation_fence);
+            let response = match binding {
+                Ok(Some(binding))
+                    if authorization
+                        .selected_runtime_ids
+                        .contains(&binding.runtime_id) =>
+                {
+                    ResponseV2::thread_binding(thread_binding_receipt(binding))
+                }
+                Ok(Some(_)) => ResponseV2::error(ErrorCodeV2::AuthorizationRequired),
+                Ok(None) | Err(_) => ResponseV2::error(ErrorCodeV2::ThreadBindingRejected),
+            };
+            write_json_frame_bounded(&mut send, &response, MAX_REMORA_LINK_V2_FRAME_BYTES).await?;
+            if response.ok {
+                Ok(())
+            } else {
+                Err(anyhow!(
+                    response
+                        .error_code
+                        .unwrap_or(ErrorCodeV2::Internal)
+                        .message()
+                ))
+            }
         }
         RequestV2::PrepareSendMessageIntent {
             intent_id,
@@ -909,6 +1008,16 @@ fn work_intent_receipt(preparation: WorkIntentPreparation) -> WorkIntentReceiptV
             .0,
         turn_id: record.turn_id.map(|turn_id| turn_id.0),
         status,
+    }
+}
+
+fn thread_binding_receipt(binding: ProviderThreadBinding) -> ThreadBindingReceiptV2 {
+    ThreadBindingReceiptV2 {
+        thread_id: binding.thread_id.0,
+        provider_session_id: binding.provider_session_id.0,
+        provider_instance_id: binding.provider_instance_id.0,
+        runtime_id: binding.runtime_id,
+        provider_thread_id: binding.provider_thread_id,
     }
 }
 

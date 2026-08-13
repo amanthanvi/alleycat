@@ -23,6 +23,8 @@ pub const MAX_MODELS_PER_PROVIDER: usize = 256;
 pub const MAX_ROUTE_HANDLES: usize = MAX_THREADS;
 pub const MAX_TRUSTED_SCRIPTS: usize = 1_024;
 pub const MAX_BROWSER_PROFILES: usize = MAX_PROJECTS;
+pub const MAX_WORK_INTENTS: usize = MAX_THREADS + MAX_TURNS;
+pub const MAX_WORK_INTENT_ID_BYTES: usize = 128;
 pub const MAX_COMMAND_ARGUMENTS: usize = 64;
 pub const MAX_DECLARED_ENVIRONMENT: usize = 128;
 pub const MAX_COMMAND_CENTER_STATUS_BYTES: usize = 512 * 1024;
@@ -51,6 +53,21 @@ opaque_id!(ProviderSessionId);
 opaque_id!(CheckpointId);
 opaque_id!(ReviewNoteId);
 opaque_id!(RouteHandle);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkIntentKind {
+    CreateThread,
+    SendMessage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkIntentState {
+    Reserved,
+    Dispatching,
+    Succeeded,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -496,6 +513,28 @@ pub struct BrowserProfileRecord {
     pub updated_at_ms: i64,
 }
 
+/// Durable Host-side receipt for a device work intent.
+///
+/// `Dispatching` is deliberately an ambiguity fence: after an external
+/// provider mutation may have started, recovery reports an unknown outcome
+/// and never blindly dispatches the same intent again. The caller must
+/// reconcile authoritative Thread history before deciding what to do next.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkIntentRecord {
+    pub intent_id: String,
+    pub origin_credential_id: String,
+    pub kind: WorkIntentKind,
+    pub request_fingerprint: String,
+    pub state: WorkIntentState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<ThreadId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<TurnId>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HostCatalogV1 {
@@ -513,6 +552,8 @@ pub struct HostCatalogV1 {
     pub route_handles: Vec<RouteHandleRecord>,
     pub trusted_scripts: Vec<TrustedScriptRecord>,
     pub browser_profiles: Vec<BrowserProfileRecord>,
+    #[serde(default)]
+    pub work_intents: Vec<WorkIntentRecord>,
 }
 
 /// Bounded status safe to disclose under the existing runtime-inspection
@@ -545,6 +586,7 @@ impl HostCatalogV1 {
             route_handles: Vec::new(),
             trusted_scripts: Vec::new(),
             browser_profiles: Vec::new(),
+            work_intents: Vec::new(),
         }
     }
 
@@ -585,6 +627,7 @@ impl HostCatalogV1 {
             self.browser_profiles.len(),
             MAX_BROWSER_PROFILES,
         )?;
+        validate_count("work intents", self.work_intents.len(), MAX_WORK_INTENTS)?;
         validate_host_capabilities(&self.host_capabilities)?;
 
         unique_ids(
@@ -632,6 +675,11 @@ impl HostCatalogV1 {
             self.route_handles
                 .iter()
                 .map(|record| record.route_handle.as_str()),
+        )?;
+        unique_work_intent_ids(
+            self.work_intents
+                .iter()
+                .map(|record| record.intent_id.as_str()),
         )?;
 
         let project_ids = self
@@ -876,6 +924,37 @@ impl HostCatalogV1 {
                 return Err(CatalogValidationError::InvalidReference("browser profile"));
             }
         }
+        for intent in &self.work_intents {
+            validate_id(
+                "work intent origin credential",
+                &intent.origin_credential_id,
+            )?;
+            validate_sha256(
+                "work intent request fingerprint",
+                &intent.request_fingerprint,
+            )?;
+            validate_timestamp("work intent created_at_ms", intent.created_at_ms)?;
+            validate_timestamp("work intent updated_at_ms", intent.updated_at_ms)?;
+            let referenced_thread = intent.thread_id.as_ref().map(ThreadId::as_str);
+            let referenced_turn_thread = intent
+                .turn_id
+                .as_ref()
+                .and_then(|turn_id| turn_threads.get(turn_id.as_str()).copied());
+            if intent.updated_at_ms < intent.created_at_ms
+                || referenced_thread.is_some_and(|thread_id| !thread_ids.contains(thread_id))
+                || intent.turn_id.is_some() && referenced_turn_thread.is_none()
+                || referenced_turn_thread
+                    .is_some_and(|thread_id| Some(thread_id) != referenced_thread)
+                || matches!(intent.kind, WorkIntentKind::CreateThread)
+                    && (intent.thread_id.is_none() || intent.turn_id.is_some())
+                || matches!(intent.kind, WorkIntentKind::SendMessage) && intent.thread_id.is_none()
+                || matches!(intent.state, WorkIntentState::Succeeded)
+                    && matches!(intent.kind, WorkIntentKind::SendMessage)
+                    && intent.turn_id.is_none()
+            {
+                return Err(CatalogValidationError::InvalidReference("work intent"));
+            }
+        }
         let status_size = serde_json::to_vec(&self.command_center_status())
             .map_err(|_| CatalogValidationError::InvalidCapability)?
             .len();
@@ -899,6 +978,37 @@ impl HostCatalogV1 {
                     || updated.summary.provider_instance_id != current.summary.provider_instance_id)
             {
                 return Err(CatalogValidationError::ImmutableThreadRuntime);
+            }
+        }
+        for current in &self.work_intents {
+            let Some(updated) = next
+                .work_intents
+                .iter()
+                .find(|candidate| candidate.intent_id == current.intent_id)
+            else {
+                return Err(CatalogValidationError::InvalidWorkIntentTransition);
+            };
+            let state_is_valid = current.state == updated.state
+                || matches!(
+                    (current.state, updated.state),
+                    (WorkIntentState::Reserved, WorkIntentState::Dispatching)
+                        | (WorkIntentState::Reserved, WorkIntentState::Succeeded)
+                        | (WorkIntentState::Dispatching, WorkIntentState::Succeeded)
+                );
+            let turn_is_valid = current.turn_id == updated.turn_id
+                || current.turn_id.is_none()
+                    && updated.turn_id.is_some()
+                    && matches!(updated.state, WorkIntentState::Succeeded);
+            if current.origin_credential_id != updated.origin_credential_id
+                || current.kind != updated.kind
+                || current.request_fingerprint != updated.request_fingerprint
+                || current.thread_id != updated.thread_id
+                || current.created_at_ms != updated.created_at_ms
+                || updated.updated_at_ms < current.updated_at_ms
+                || !state_is_valid
+                || !turn_is_valid
+            {
+                return Err(CatalogValidationError::InvalidWorkIntentTransition);
             }
         }
         Ok(())
@@ -948,6 +1058,8 @@ pub enum CatalogValidationError {
     InvalidGeneration,
     #[error("thread runtime and provider instance are immutable")]
     ImmutableThreadRuntime,
+    #[error("invalid durable work-intent transition")]
+    InvalidWorkIntentTransition,
 }
 
 pub fn valid_opaque_id(value: &str) -> bool {
@@ -972,6 +1084,26 @@ fn unique_ids<'a>(
         validate_id(kind, value)?;
         if !seen.insert(value) {
             return Err(CatalogValidationError::DuplicateId(kind));
+        }
+    }
+    Ok(())
+}
+
+fn unique_work_intent_ids<'a>(
+    values: impl Iterator<Item = &'a str>,
+) -> Result<(), CatalogValidationError> {
+    let mut seen = HashSet::new();
+    for value in values {
+        if value.is_empty()
+            || value.len() > MAX_WORK_INTENT_ID_BYTES
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err(CatalogValidationError::InvalidId("work intent"));
+        }
+        if !seen.insert(value) {
+            return Err(CatalogValidationError::DuplicateId("work intent"));
         }
     }
     Ok(())
@@ -1346,6 +1478,70 @@ mod tests {
     #[test]
     fn complete_catalog_graph_is_bounded_and_relationally_valid() {
         full_catalog().validate().expect("valid catalog");
+    }
+
+    #[test]
+    fn work_intent_receipts_are_bounded_and_reference_authoritative_domain_records() {
+        let mut catalog = full_catalog();
+        catalog.work_intents.push(WorkIntentRecord {
+            intent_id: "device-intent-1".to_string(),
+            origin_credential_id: "jklmnopqrstuvwxyzabcde".to_string(),
+            kind: WorkIntentKind::SendMessage,
+            request_fingerprint: "c".repeat(64),
+            state: WorkIntentState::Succeeded,
+            thread_id: Some(catalog.threads[0].summary.thread_id.clone()),
+            turn_id: Some(catalog.turns[0].turn_id.clone()),
+            created_at_ms: 3,
+            updated_at_ms: 4,
+        });
+        catalog.validate().expect("valid work intent receipt");
+
+        catalog.work_intents[0].turn_id = Some(TurnId("klmnopqrstuvwxyzabcdef".to_string()));
+        assert_eq!(
+            catalog.validate(),
+            Err(CatalogValidationError::InvalidReference("work intent"))
+        );
+    }
+
+    #[test]
+    fn work_intent_transition_never_allows_replay_or_identity_rewrite() {
+        let mut current = full_catalog();
+        current.work_intents.push(WorkIntentRecord {
+            intent_id: "device-intent-1".to_string(),
+            origin_credential_id: "jklmnopqrstuvwxyzabcde".to_string(),
+            kind: WorkIntentKind::SendMessage,
+            request_fingerprint: "c".repeat(64),
+            state: WorkIntentState::Reserved,
+            thread_id: Some(current.threads[0].summary.thread_id.clone()),
+            turn_id: None,
+            created_at_ms: 3,
+            updated_at_ms: 3,
+        });
+        current.validate().expect("valid reservation");
+
+        let mut dispatching = current.clone();
+        dispatching.generation += 1;
+        dispatching.work_intents[0].state = WorkIntentState::Dispatching;
+        dispatching.work_intents[0].updated_at_ms = 4;
+        current
+            .validate_transition(&dispatching)
+            .expect("forward transition");
+
+        let mut replayable = dispatching.clone();
+        replayable.generation += 1;
+        replayable.work_intents[0].state = WorkIntentState::Reserved;
+        assert_eq!(
+            dispatching.validate_transition(&replayable),
+            Err(CatalogValidationError::InvalidWorkIntentTransition)
+        );
+
+        let mut removed = dispatching.clone();
+        removed.generation += 1;
+        removed.work_intents.clear();
+        assert_eq!(
+            dispatching.validate_transition(&removed),
+            Err(CatalogValidationError::InvalidWorkIntentTransition)
+        );
     }
 
     #[test]

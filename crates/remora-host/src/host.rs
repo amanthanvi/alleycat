@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use iroh::endpoint::QuicTransportConfig;
@@ -12,17 +12,19 @@ use tokio::sync::{Notify, Semaphore};
 use tracing::{info, warn};
 
 use crate::agents::AgentManager;
-use crate::catalog::HostCatalogStore;
+use crate::catalog::{HostCatalogStore, WorkIntentPreparation};
 use crate::framing::{
     MAX_REMORA_LINK_V2_FRAME_BYTES, read_json_frame_bounded, write_json_frame_bounded,
 };
 use crate::pairing_v2::{
-    EnrollmentOutcomeV2, ErrorCodeV2, PROTOCOL_VERSION_V2, PairingManager, ProofV2,
-    REMORA_LINK_ALPN, RedeemError, RequestV2, ResponseV2, RestartPreparationV2, RestartResultV2,
-    RestartStatusV2, RevocationMutationV2,
+    AuthorizationContextV2, EnrollmentOutcomeV2, ErrorCodeV2, PROTOCOL_VERSION_V2, PairingManager,
+    ProofV2, REMORA_LINK_ALPN, RedeemError, RequestV2, ResponseV2, RestartPreparationV2,
+    RestartResultV2, RestartStatusV2, RevocationMutationV2, WorkIntentReceiptV2,
+    WorkIntentStatusV2,
 };
 use crate::protocol::SessionInfo;
 use crate::stream::IrohStream;
+use remora_bridge_core::command_center::ThreadId;
 
 const MAX_CONCURRENT_CONNECTIONS: usize = 128;
 const MAX_CONCURRENT_CONNECTIONS_PER_ENDPOINT: usize = 8;
@@ -485,6 +487,9 @@ async fn handle_stream_v2(
         }
         RequestV2::ListAgents { .. }
         | RequestV2::CommandCenterStatus { .. }
+        | RequestV2::PrepareSendMessageIntent { .. }
+        | RequestV2::BeginSendMessageIntent { .. }
+        | RequestV2::CompleteSendMessageIntent { .. }
         | RequestV2::RestartAgent { .. }
         | RequestV2::Connect { .. } => {}
     }
@@ -564,6 +569,84 @@ async fn handle_stream_v2(
             )
             .await?;
             Ok(())
+        }
+        RequestV2::PrepareSendMessageIntent {
+            intent_id,
+            thread_id,
+            request_fingerprint,
+            ..
+        } => {
+            info!(conn, "prepare_send_message_intent");
+            handle_work_intent_mutation(
+                &mut send,
+                &pairing,
+                &catalog,
+                &authorization,
+                &authenticated_client_endpoint_id,
+                thread_id,
+                |thread_id| {
+                    catalog.prepare_send_message_intent(
+                        intent_id,
+                        &authorization.credential_id,
+                        request_fingerprint,
+                        thread_id.clone(),
+                        unix_now_ms(),
+                    )
+                },
+            )
+            .await
+        }
+        RequestV2::BeginSendMessageIntent {
+            intent_id,
+            thread_id,
+            request_fingerprint,
+            ..
+        } => {
+            info!(conn, "begin_send_message_intent");
+            handle_work_intent_mutation(
+                &mut send,
+                &pairing,
+                &catalog,
+                &authorization,
+                &authenticated_client_endpoint_id,
+                thread_id,
+                |thread_id| {
+                    catalog.mark_work_intent_dispatching(
+                        intent_id,
+                        &authorization.credential_id,
+                        request_fingerprint,
+                        thread_id,
+                        unix_now_ms(),
+                    )
+                },
+            )
+            .await
+        }
+        RequestV2::CompleteSendMessageIntent {
+            intent_id,
+            thread_id,
+            request_fingerprint,
+            ..
+        } => {
+            info!(conn, "complete_send_message_intent");
+            handle_work_intent_mutation(
+                &mut send,
+                &pairing,
+                &catalog,
+                &authorization,
+                &authenticated_client_endpoint_id,
+                thread_id,
+                |thread_id| {
+                    catalog.mark_work_intent_succeeded(
+                        intent_id,
+                        &authorization.credential_id,
+                        request_fingerprint,
+                        thread_id,
+                        unix_now_ms(),
+                    )
+                },
+            )
+            .await
         }
         RequestV2::RestartAgent { agent, .. } => {
             info!(conn, %agent, "restart_agent");
@@ -743,6 +826,96 @@ async fn handle_stream_v2(
     }
 }
 
+async fn handle_work_intent_mutation<F>(
+    send: &mut iroh::endpoint::SendStream,
+    pairing: &PairingManager,
+    catalog: &HostCatalogStore,
+    authorization: &AuthorizationContextV2,
+    authenticated_client_endpoint_id: &str,
+    thread_id: &str,
+    mutation: F,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(&ThreadId) -> anyhow::Result<WorkIntentPreparation>,
+{
+    let thread_id = ThreadId(thread_id.to_string());
+    let authorized = catalog.snapshot().threads.iter().any(|thread| {
+        thread.summary.thread_id == thread_id
+            && authorization
+                .selected_runtime_ids
+                .contains(&thread.summary.runtime_id)
+    });
+    if !authorized {
+        write_json_frame_bounded(
+            send,
+            &ResponseV2::error(ErrorCodeV2::AuthorizationRequired),
+            MAX_REMORA_LINK_V2_FRAME_BYTES,
+        )
+        .await?;
+        return Err(anyhow!(ErrorCodeV2::AuthorizationRequired.message()));
+    }
+    let operation_fence = match pairing
+        .prepare_connect_start(authorization, authenticated_client_endpoint_id)
+        .await
+    {
+        Ok(fence) => fence,
+        Err(_) => {
+            write_json_frame_bounded(
+                send,
+                &ResponseV2::error(ErrorCodeV2::AuthorizationRequired),
+                MAX_REMORA_LINK_V2_FRAME_BYTES,
+            )
+            .await?;
+            return Err(anyhow!(ErrorCodeV2::AuthorizationRequired.message()));
+        }
+    };
+    let result = mutation(&thread_id);
+    drop(operation_fence);
+    let response = match result {
+        Ok(preparation) => ResponseV2::work_intent(work_intent_receipt(preparation)),
+        Err(_) => ResponseV2::error(ErrorCodeV2::InvalidRequest),
+    };
+    write_json_frame_bounded(send, &response, MAX_REMORA_LINK_V2_FRAME_BYTES).await?;
+    if response.ok {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            response
+                .error_code
+                .unwrap_or(ErrorCodeV2::Internal)
+                .message()
+        ))
+    }
+}
+
+fn work_intent_receipt(preparation: WorkIntentPreparation) -> WorkIntentReceiptV2 {
+    let (record, status) = match preparation {
+        WorkIntentPreparation::Execute(record) => (record, WorkIntentStatusV2::Execute),
+        WorkIntentPreparation::Reserved(record) => (record, WorkIntentStatusV2::Reserved),
+        WorkIntentPreparation::Succeeded(record) => (record, WorkIntentStatusV2::Succeeded),
+        WorkIntentPreparation::OutcomeUnknown(record) => {
+            (record, WorkIntentStatusV2::OutcomeUnknown)
+        }
+    };
+    WorkIntentReceiptV2 {
+        intent_id: record.intent_id,
+        thread_id: record
+            .thread_id
+            .expect("validated send-message intent has a Thread")
+            .0,
+        turn_id: record.turn_id.map(|turn_id| turn_id.0),
+        status,
+    }
+}
+
+fn unix_now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(i64::MAX as u128) as i64
+}
+
 fn revocation_response(mutation: Result<RevocationMutationV2, RedeemError>) -> (bool, ResponseV2) {
     match mutation {
         Ok(RevocationMutationV2::Durable(receipt)) => (true, ResponseV2::revocation(receipt)),
@@ -801,6 +974,9 @@ pub(crate) fn local_host_name() -> Option<String> {
 mod tests {
     use super::*;
     use crate::protocol::{AgentInfo, AgentWire};
+    use remora_bridge_core::command_center::{
+        TurnId, WorkIntentKind, WorkIntentRecord, WorkIntentState,
+    };
     use std::sync::atomic::{AtomicBool, Ordering};
 
     struct DropFlag(Arc<AtomicBool>);
@@ -895,5 +1071,29 @@ mod tests {
             response.error_code,
             Some(ErrorCodeV2::AuthorizationRequired)
         );
+    }
+
+    #[test]
+    fn work_intent_receipts_expose_only_opaque_correlation_state() {
+        let record = WorkIntentRecord {
+            intent_id: "device-intent-1".to_string(),
+            origin_credential_id: "abcdefghijklmnopqrstuv".to_string(),
+            kind: WorkIntentKind::SendMessage,
+            request_fingerprint: "a".repeat(64),
+            state: WorkIntentState::Succeeded,
+            thread_id: Some(ThreadId("bcdefghijklmnopqrstuvw".to_string())),
+            turn_id: Some(TurnId("cdefghijklmnopqrstuvwx".to_string())),
+            created_at_ms: 1,
+            updated_at_ms: 2,
+        };
+        let receipt = work_intent_receipt(WorkIntentPreparation::Succeeded(record));
+        let response = ResponseV2::work_intent(receipt.clone());
+        let value = serde_json::to_value(&response).expect("serialize response");
+
+        assert!(response.ok);
+        assert_eq!(response.work_intent, Some(receipt));
+        assert!(value.get("prompt").is_none());
+        assert!(value.get("request_fingerprint").is_none());
+        assert!(value.get("origin_credential_id").is_none());
     }
 }

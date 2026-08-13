@@ -27,7 +27,7 @@ use tokio::sync::{Mutex, OwnedRwLockReadGuard, RwLock};
 use tracing::{error, warn};
 use zeroize::{Zeroize, Zeroizing};
 
-use remora_bridge_core::command_center::HostCommandCenterStatusV1;
+use remora_bridge_core::command_center::{HostCommandCenterStatusV1, MAX_WORK_INTENT_ID_BYTES};
 
 use crate::protocol::{AgentInfo, SessionInfo};
 
@@ -254,6 +254,30 @@ pub enum RequestV2 {
         credential_id: String,
         client_nonce: String,
     },
+    PrepareSendMessageIntent {
+        v: u32,
+        credential_id: String,
+        client_nonce: String,
+        intent_id: String,
+        thread_id: String,
+        request_fingerprint: String,
+    },
+    BeginSendMessageIntent {
+        v: u32,
+        credential_id: String,
+        client_nonce: String,
+        intent_id: String,
+        thread_id: String,
+        request_fingerprint: String,
+    },
+    CompleteSendMessageIntent {
+        v: u32,
+        credential_id: String,
+        client_nonce: String,
+        intent_id: String,
+        thread_id: String,
+        request_fingerprint: String,
+    },
     RestartAgent {
         v: u32,
         credential_id: String,
@@ -292,6 +316,9 @@ impl RequestV2 {
             | Self::Enroll { v, .. }
             | Self::ListAgents { v, .. }
             | Self::CommandCenterStatus { v, .. }
+            | Self::PrepareSendMessageIntent { v, .. }
+            | Self::BeginSendMessageIntent { v, .. }
+            | Self::CompleteSendMessageIntent { v, .. }
             | Self::RestartAgent { v, .. }
             | Self::Connect { v, .. }
             | Self::RevokeSelf { v, .. }
@@ -305,6 +332,9 @@ impl RequestV2 {
             Self::Enroll { .. } => "enroll",
             Self::ListAgents { .. } => "list_agents",
             Self::CommandCenterStatus { .. } => "command_center_status",
+            Self::PrepareSendMessageIntent { .. } => "prepare_send_message_intent",
+            Self::BeginSendMessageIntent { .. } => "begin_send_message_intent",
+            Self::CompleteSendMessageIntent { .. } => "complete_send_message_intent",
             Self::RestartAgent { .. } => "restart_agent",
             Self::Connect { .. } => "connect",
             Self::RevokeSelf { .. } => "revoke_self",
@@ -318,6 +348,9 @@ impl RequestV2 {
             | Self::Enroll { client_nonce, .. }
             | Self::ListAgents { client_nonce, .. }
             | Self::CommandCenterStatus { client_nonce, .. }
+            | Self::PrepareSendMessageIntent { client_nonce, .. }
+            | Self::BeginSendMessageIntent { client_nonce, .. }
+            | Self::CompleteSendMessageIntent { client_nonce, .. }
             | Self::RestartAgent { client_nonce, .. }
             | Self::Connect { client_nonce, .. }
             | Self::RevokeSelf { client_nonce, .. }
@@ -330,6 +363,9 @@ impl RequestV2 {
             Self::InspectInvitation { .. } | Self::Enroll { .. } => None,
             Self::ListAgents { credential_id, .. }
             | Self::CommandCenterStatus { credential_id, .. }
+            | Self::PrepareSendMessageIntent { credential_id, .. }
+            | Self::BeginSendMessageIntent { credential_id, .. }
+            | Self::CompleteSendMessageIntent { credential_id, .. }
             | Self::RestartAgent { credential_id, .. }
             | Self::Connect { credential_id, .. }
             | Self::RevokeSelf { credential_id, .. }
@@ -365,6 +401,24 @@ impl RequestV2 {
             ]),
             Self::ListAgents { .. } => hash_operation_payload(&[]),
             Self::CommandCenterStatus { .. } => hash_operation_payload(&[]),
+            Self::PrepareSendMessageIntent {
+                intent_id,
+                thread_id,
+                request_fingerprint,
+                ..
+            }
+            | Self::BeginSendMessageIntent {
+                intent_id,
+                thread_id,
+                request_fingerprint,
+                ..
+            }
+            | Self::CompleteSendMessageIntent {
+                intent_id,
+                thread_id,
+                request_fingerprint,
+                ..
+            } => hash_operation_payload(&[intent_id, thread_id, request_fingerprint]),
             Self::RestartAgent {
                 agent,
                 idempotency_key,
@@ -572,6 +626,25 @@ pub enum RestartStatusV2 {
     OutcomeUnknown,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkIntentStatusV2 {
+    Execute,
+    Reserved,
+    Succeeded,
+    OutcomeUnknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkIntentReceiptV2 {
+    pub intent_id: String,
+    pub thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub status: WorkIntentStatusV2,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RestartResultV2 {
@@ -705,6 +778,8 @@ pub struct ResponseV2 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command_center_status: Option<HostCommandCenterStatusV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_intent: Option<WorkIntentReceiptV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_code: Option<ErrorCodeV2>,
@@ -725,6 +800,7 @@ impl ResponseV2 {
             restart: None,
             agents: None,
             command_center_status: None,
+            work_intent: None,
             session: None,
             error_code: None,
             error: None,
@@ -775,6 +851,7 @@ impl ResponseV2 {
             restart: None,
             agents: None,
             command_center_status: None,
+            work_intent: None,
             session: None,
             error_code: Some(ErrorCodeV2::OutcomeUnknown),
             error: Some(ErrorCodeV2::OutcomeUnknown.message().to_string()),
@@ -797,6 +874,7 @@ impl ResponseV2 {
                 restart: Some(value),
                 agents: None,
                 command_center_status: None,
+                work_intent: None,
                 session: None,
                 error_code: Some(ErrorCodeV2::OutcomeUnknown),
                 error: Some(ErrorCodeV2::OutcomeUnknown.message().to_string()),
@@ -813,6 +891,30 @@ impl ResponseV2 {
         Self {
             command_center_status: Some(value),
             ..Self::success()
+        }
+    }
+    pub fn work_intent(value: WorkIntentReceiptV2) -> Self {
+        match value.status {
+            WorkIntentStatusV2::OutcomeUnknown => Self {
+                v: PROTOCOL_VERSION_V2,
+                ok: false,
+                challenge: None,
+                enrolled: None,
+                inspection: None,
+                pending: None,
+                revocation: None,
+                restart: None,
+                agents: None,
+                command_center_status: None,
+                work_intent: Some(value),
+                session: None,
+                error_code: Some(ErrorCodeV2::OutcomeUnknown),
+                error: Some(ErrorCodeV2::OutcomeUnknown.message().to_string()),
+            },
+            _ => Self {
+                work_intent: Some(value),
+                ..Self::success()
+            },
         }
     }
     pub fn session(value: SessionInfo) -> Self {
@@ -833,6 +935,7 @@ impl ResponseV2 {
             restart: None,
             agents: None,
             command_center_status: None,
+            work_intent: None,
             session: None,
             error_code: Some(code),
             error: Some(code.message().to_string()),
@@ -2815,6 +2918,21 @@ fn valid_idempotency_key(value: &str) -> bool {
     valid_label(value, MAX_IDEMPOTENCY_KEY_BYTES)
 }
 
+fn valid_work_intent_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_WORK_INTENT_ID_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
 fn valid_runtime_id(value: &str) -> bool {
     valid_label(value, MAX_RUNTIME_ID_BYTES)
         && value
@@ -3002,6 +3120,35 @@ fn validate_request(request: &RequestV2) -> Result<(), RedeemError> {
                 return Err(RedeemError::Unavailable);
             }
         }
+        RequestV2::PrepareSendMessageIntent {
+            credential_id,
+            intent_id,
+            thread_id,
+            request_fingerprint,
+            ..
+        }
+        | RequestV2::BeginSendMessageIntent {
+            credential_id,
+            intent_id,
+            thread_id,
+            request_fingerprint,
+            ..
+        }
+        | RequestV2::CompleteSendMessageIntent {
+            credential_id,
+            intent_id,
+            thread_id,
+            request_fingerprint,
+            ..
+        } => {
+            if !valid_opaque_id(credential_id)
+                || !valid_work_intent_id(intent_id)
+                || !valid_opaque_id(thread_id)
+                || !valid_sha256(request_fingerprint)
+            {
+                return Err(RedeemError::Unavailable);
+            }
+        }
         RequestV2::RestartAgent {
             credential_id,
             agent,
@@ -3057,6 +3204,9 @@ fn enforce_operation_grant(request: &RequestV2, device: &DeviceRecord) -> Result
         RequestV2::ListAgents { .. } | RequestV2::CommandCenterStatus { .. } => {
             (DeviceScopeV2::InspectRuntimes, None)
         }
+        RequestV2::PrepareSendMessageIntent { .. }
+        | RequestV2::BeginSendMessageIntent { .. }
+        | RequestV2::CompleteSendMessageIntent { .. } => (DeviceScopeV2::ConnectRuntime, None),
         RequestV2::RestartAgent { agent, .. } => (DeviceScopeV2::RestartRuntime, Some(agent)),
         RequestV2::Connect { agent, .. } => (DeviceScopeV2::ConnectRuntime, Some(agent)),
         _ => return Err(RedeemError::Unavailable),
@@ -3937,6 +4087,38 @@ mod tests {
         assert!(invite.secret.is_empty());
     }
 
+    #[test]
+    fn work_intent_control_frames_are_content_free_and_strictly_bounded() {
+        let mut request = RequestV2::PrepareSendMessageIntent {
+            v: PROTOCOL_VERSION_V2,
+            credential_id: "abcdefghijklmnopqrstuv".to_string(),
+            client_nonce: random_urlsafe(NONCE_BYTES),
+            intent_id: "device-intent-1".to_string(),
+            thread_id: "bcdefghijklmnopqrstuvw".to_string(),
+            request_fingerprint: "a".repeat(64),
+        };
+        assert!(validate_request(&request).is_ok());
+        let value = serde_json::to_value(&request).expect("serialize request");
+        assert!(value.get("prompt").is_none());
+        assert!(value.get("payload").is_none());
+
+        if let RequestV2::PrepareSendMessageIntent { intent_id, .. } = &mut request {
+            *intent_id = "invalid intent".to_string();
+        }
+        assert_eq!(validate_request(&request), Err(RedeemError::Unavailable));
+
+        if let RequestV2::PrepareSendMessageIntent {
+            intent_id,
+            request_fingerprint,
+            ..
+        } = &mut request
+        {
+            *intent_id = "device-intent-1".to_string();
+            *request_fingerprint = "A".repeat(64);
+        }
+        assert_eq!(validate_request(&request), Err(RedeemError::Unavailable));
+    }
+
     #[tokio::test]
     async fn oversized_pairing_envelope_is_rejected_before_persistence() {
         let (_temp, manager) = manager().await;
@@ -4266,6 +4448,28 @@ mod tests {
             .unwrap();
         assert!(manager.is_authorization_current(&context, "phone").await);
 
+        let intent = RequestV2::PrepareSendMessageIntent {
+            v: PROTOCOL_VERSION_V2,
+            credential_id: enrolled.device_id.clone(),
+            client_nonce: random_urlsafe(NONCE_BYTES),
+            intent_id: "device-intent-1".to_string(),
+            thread_id: "bcdefghijklmnopqrstuvw".to_string(),
+            request_fingerprint: "a".repeat(64),
+        };
+        let intent_challenge = ProofChallengeV2::issue_at(enrolled.device_id.clone(), 0, now + 4);
+        let intent_proof = sign_request(&intent, &intent_challenge, &key, &host_id, "phone");
+        manager
+            .authorize_operation_at(
+                &intent,
+                &intent_challenge,
+                &intent_proof,
+                &host_id,
+                "phone",
+                now + 4,
+            )
+            .await
+            .expect("ConnectRuntime authorizes a content-free work intent");
+
         let denied = RequestV2::RestartAgent {
             v: PROTOCOL_VERSION_V2,
             credential_id: enrolled.device_id.clone(),
@@ -4274,7 +4478,7 @@ mod tests {
             idempotency_key: "restart-operation-1".to_string(),
             command_sequence: 1,
         };
-        let denied_challenge = ProofChallengeV2::issue_at(enrolled.device_id, 0, now + 4);
+        let denied_challenge = ProofChallengeV2::issue_at(enrolled.device_id, 0, now + 5);
         let denied_proof = sign_request(&denied, &denied_challenge, &key, &host_id, "phone");
         assert_eq!(
             manager
@@ -4284,7 +4488,7 @@ mod tests {
                     &denied_proof,
                     &host_id,
                     "phone",
-                    now + 4
+                    now + 5
                 )
                 .await,
             Err(RedeemError::Unavailable)

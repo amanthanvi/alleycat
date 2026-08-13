@@ -871,10 +871,7 @@ where
     };
     let result = mutation(&thread_id);
     drop(operation_fence);
-    let response = match result {
-        Ok(preparation) => ResponseV2::work_intent(work_intent_receipt(preparation)),
-        Err(_) => ResponseV2::error(ErrorCodeV2::InvalidRequest),
-    };
+    let response = work_intent_response(result);
     write_json_frame_bounded(send, &response, MAX_REMORA_LINK_V2_FRAME_BYTES).await?;
     if response.ok {
         Ok(())
@@ -885,6 +882,13 @@ where
                 .unwrap_or(ErrorCodeV2::Internal)
                 .message()
         ))
+    }
+}
+
+fn work_intent_response(result: anyhow::Result<WorkIntentPreparation>) -> ResponseV2 {
+    match result {
+        Ok(preparation) => ResponseV2::work_intent(work_intent_receipt(preparation)),
+        Err(_) => ResponseV2::error(ErrorCodeV2::WorkIntentRejected),
     }
 }
 
@@ -1095,5 +1099,15 @@ mod tests {
         assert!(value.get("prompt").is_none());
         assert!(value.get("request_fingerprint").is_none());
         assert!(value.get("origin_credential_id").is_none());
+    }
+
+    #[test]
+    fn work_intent_conflicts_do_not_reuse_the_legacy_unsupported_code() {
+        let response = work_intent_response(Err(anyhow!("fingerprint mismatch")));
+
+        assert!(!response.ok);
+        assert_eq!(response.error_code, Some(ErrorCodeV2::WorkIntentRejected));
+        assert_eq!(response.error.as_deref(), Some("work intent rejected"));
+        assert!(response.work_intent.is_none());
     }
 }
